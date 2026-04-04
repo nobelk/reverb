@@ -11,8 +11,10 @@ import (
 	"github.com/org/reverb/internal/hashutil"
 	"github.com/org/reverb/pkg/cache/exact"
 	"github.com/org/reverb/pkg/cache/semantic"
+	"github.com/org/reverb/pkg/cdc"
 	"github.com/org/reverb/pkg/embedding"
 	"github.com/org/reverb/pkg/lineage"
+	"github.com/org/reverb/pkg/metrics"
 	"github.com/org/reverb/pkg/normalize"
 	"github.com/org/reverb/pkg/store"
 	"github.com/org/reverb/pkg/vector"
@@ -52,12 +54,13 @@ type StoreRequest struct {
 
 // Stats holds cache statistics.
 type Stats struct {
-	TotalEntries        int64
-	Namespaces          []string
-	ExactHitsTotal      int64
-	SemanticHitsTotal   int64
-	MissesTotal         int64
-	InvalidationsTotal  int64
+	TotalEntries       int64
+	Namespaces         []string
+	ExactHitsTotal     int64
+	SemanticHitsTotal  int64
+	MissesTotal        int64
+	InvalidationsTotal int64
+	HitRate            float64
 }
 
 // Client is the primary entry point for Reverb.
@@ -73,19 +76,18 @@ type Client struct {
 	lineageIdx   *lineage.Index
 	clock        Clock
 	logger       *slog.Logger
+	collector    *metrics.Collector
+	cdcListener  cdc.Listener
 
+	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-
-	mu                 sync.Mutex
-	exactHits          int64
-	semanticHits       int64
-	misses             int64
-	invalidationsTotal int64
 }
 
 // New creates a new Reverb client with the given configuration and pre-built dependencies.
-func New(cfg Config, embedder embedding.Provider, s store.Store, vi vector.Index) (*Client, error) {
+// Functional options (WithClock, WithLogger, WithCDCListener, WithMetricsCollector) may
+// be provided to override defaults.
+func New(cfg Config, embedder embedding.Provider, s store.Store, vi vector.Index, opts ...Option) (*Client, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -93,30 +95,207 @@ func New(cfg Config, embedder embedding.Provider, s store.Store, vi vector.Index
 
 	logger := slog.Default()
 
-	lineageIdx := lineage.NewIndex(s)
-	inv := lineage.NewInvalidator(s, vi, lineageIdx, logger)
+	ctx, cancel := context.WithCancel(context.Background())
 
-	exactCache := exact.New(s, cfg.Clock)
+	c := &Client{
+		cfg:         cfg,
+		embedder:    embedder,
+		store:       s,
+		vectorIndex: vi,
+		clock:       cfg.Clock,
+		logger:      logger,
+		collector:   metrics.NewCollector(),
+		ctx:         ctx,
+		cancel:      cancel,
+	}
+
+	// Apply functional options FIRST (may override clock, logger, collector, cdcListener).
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	// Now construct sub-caches using the potentially-overridden clock.
+	lineageIdx := lineage.NewIndex(s)
+	inv := lineage.NewInvalidator(s, vi, lineageIdx, c.logger)
+
+	exactCache := exact.New(s, c.clock)
 	semanticCache := semantic.New(embedder, vi, s, semantic.Config{
 		Threshold:    cfg.SimilarityThreshold,
 		TopK:         cfg.SemanticTopK,
 		ScopeByModel: cfg.ScopeByModel,
-	}, cfg.Clock)
+	}, c.clock)
 
-	c := &Client{
-		cfg:          cfg,
-		embedder:     embedder,
-		exactTier:    exactCache,
-		semanticTier: semanticCache,
-		store:        s,
-		vectorIndex:  vi,
-		invalidator:  inv,
-		lineageIdx:   lineageIdx,
-		clock:        cfg.Clock,
-		logger:       logger,
+	c.exactTier = exactCache
+	c.semanticTier = semanticCache
+	c.invalidator = inv
+	c.lineageIdx = lineageIdx
+
+	c.wg.Add(1)
+	go c.expiryReaper()
+
+	c.wg.Add(1)
+	go c.metricsUpdater()
+
+	// If a CDC listener was provided via WithCDCListener, start the invalidation
+	// loop and the listener goroutine. Skip both when no CDC listener is configured.
+	if c.cdcListener != nil {
+		eventCh := make(chan cdc.ChangeEvent, 256)
+
+		c.wg.Add(1)
+		go c.invalidationLoop(eventCh)
+
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			if err := c.cdcListener.Start(c.ctx, eventCh); err != nil && c.ctx.Err() == nil {
+				c.logger.Error("CDC listener exited", "listener", c.cdcListener.Name(), "error", err)
+			}
+		}()
 	}
 
 	return c, nil
+}
+
+// invalidationLoop reads CDC change events from ch and processes them in batches.
+// It accumulates up to 100 events or 500 ms before flushing.
+func (c *Client) invalidationLoop(ch <-chan cdc.ChangeEvent) {
+	defer c.wg.Done()
+
+	const batchSize = 100
+	const flushInterval = 500 * time.Millisecond
+
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	var pending []cdc.ChangeEvent
+
+	flush := func() {
+		for _, ev := range pending {
+			lineageEv := lineage.ChangeEvent{
+				SourceID:    ev.SourceID,
+				ContentHash: ev.ContentHash,
+				Timestamp:   ev.Timestamp,
+			}
+			n, err := c.invalidator.ProcessEvent(c.ctx, lineageEv)
+			if err != nil {
+				c.logger.Error("invalidation failed", "source_id", ev.SourceID, "error", err)
+				continue
+			}
+			c.collector.Invalidations.Add(int64(n))
+		}
+		pending = pending[:0]
+	}
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			// Drain remaining events.
+			for {
+				select {
+				case ev, ok := <-ch:
+					if !ok {
+						return
+					}
+					pending = append(pending, ev)
+				default:
+					flush()
+					return
+				}
+			}
+		case ev, ok := <-ch:
+			if !ok {
+				flush()
+				return
+			}
+			pending = append(pending, ev)
+			if len(pending) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			if len(pending) > 0 {
+				flush()
+			}
+		}
+	}
+}
+
+// expiryReaper runs every 5 minutes and deletes expired entries from the store
+// and vector index.
+func (c *Client) expiryReaper() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.reapExpired()
+		}
+	}
+}
+
+func (c *Client) reapExpired() {
+	storeStats, err := c.store.Stats(c.ctx)
+	if err != nil {
+		c.logger.Error("reaper: stats failed", "error", err)
+		return
+	}
+
+	now := c.clock.Now()
+	for _, ns := range storeStats.Namespaces {
+		var expired []string
+		err := c.store.Scan(c.ctx, ns, func(entry *store.CacheEntry) bool {
+			if !entry.ExpiresAt.IsZero() && entry.ExpiresAt.Before(now) {
+				expired = append(expired, entry.ID)
+			}
+			return true
+		})
+		if err != nil {
+			c.logger.Error("reaper: scan failed", "namespace", ns, "error", err)
+			continue
+		}
+		if len(expired) == 0 {
+			continue
+		}
+		for _, id := range expired {
+			if err := c.vectorIndex.Delete(c.ctx, id); err != nil {
+				c.logger.Error("reaper: vector delete failed", "entry_id", id, "error", err)
+			}
+		}
+		if err := c.store.DeleteBatch(c.ctx, expired); err != nil {
+			c.logger.Error("reaper: store delete failed", "namespace", ns, "error", err)
+		} else {
+			c.logger.Info("reaper: deleted expired entries", "namespace", ns, "count", len(expired))
+		}
+	}
+}
+
+// metricsUpdater recomputes the rolling hit rate every 60 seconds.
+func (c *Client) metricsUpdater() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			// The hit rate is derived on demand from the atomic counters; nothing
+			// extra needs to be done here beyond logging it for visibility.
+			snap := c.collector.Snapshot()
+			c.logger.Debug("metrics snapshot",
+				"exact_hits", snap.ExactHits,
+				"semantic_hits", snap.SemanticHits,
+				"misses", snap.Misses,
+				"hit_rate", snap.HitRate(),
+			)
+		}
+	}
 }
 
 // Lookup checks the cache for a matching response.
@@ -141,9 +320,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			defer c.wg.Done()
 			_ = c.store.IncrementHit(context.Background(), exactResult.Entry.ID)
 		}()
-		c.mu.Lock()
-		c.exactHits++
-		c.mu.Unlock()
+		c.collector.ExactHits.Add(1)
 		c.logger.Info("cache hit",
 			"tier", "exact",
 			"namespace", ns,
@@ -167,9 +344,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			defer c.wg.Done()
 			_ = c.store.IncrementHit(context.Background(), semanticResult.Entry.ID)
 		}()
-		c.mu.Lock()
-		c.semanticHits++
-		c.mu.Unlock()
+		c.collector.SemanticHits.Add(1)
 		c.logger.Info("cache hit",
 			"tier", "semantic",
 			"namespace", ns,
@@ -184,9 +359,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 	}
 
 	// Miss
-	c.mu.Lock()
-	c.misses++
-	c.mu.Unlock()
+	c.collector.Misses.Add(1)
 	return &LookupResponse{Hit: false}, nil
 }
 
@@ -219,6 +392,7 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 		c.logger.Warn("embedding failed during store, storing in exact tier only",
 			"error", err)
 		embeddingMissing = true
+		c.collector.EmbeddingErrors.Add(1)
 	} else {
 		emb = embResult
 	}
@@ -241,6 +415,8 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 	if err := c.store.Put(ctx, entry); err != nil {
 		return nil, err
 	}
+
+	c.collector.Stores.Add(1)
 
 	// Add to vector index if embedding succeeded
 	if !embeddingMissing {
@@ -267,9 +443,7 @@ func (c *Client) Invalidate(ctx context.Context, sourceID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	c.mu.Lock()
-	c.invalidationsTotal += int64(count)
-	c.mu.Unlock()
+	c.collector.Invalidations.Add(int64(count))
 	return count, nil
 }
 
@@ -288,15 +462,15 @@ func (c *Client) Stats(ctx context.Context) (*Stats, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	snap := c.collector.Snapshot()
 	return &Stats{
 		TotalEntries:       storeStats.TotalEntries,
 		Namespaces:         storeStats.Namespaces,
-		ExactHitsTotal:     c.exactHits,
-		SemanticHitsTotal:  c.semanticHits,
-		MissesTotal:        c.misses,
-		InvalidationsTotal: c.invalidationsTotal,
+		ExactHitsTotal:     snap.ExactHits,
+		SemanticHitsTotal:  snap.SemanticHits,
+		MissesTotal:        snap.Misses,
+		InvalidationsTotal: snap.Invalidations,
+		HitRate:            snap.HitRate(),
 	}, nil
 }
 

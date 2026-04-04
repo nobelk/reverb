@@ -1,0 +1,368 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775262907389,
+  "projectRoot": "/Users/nobelk/sources/reverb",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "go",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "bin",
+      "test"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "bin": {
+      "path": "bin",
+      "purpose": "Executable scripts",
+      "fileCount": 1,
+      "lastAccessed": 1775262907377,
+      "keyFiles": [
+        "reverb"
+      ]
+    },
+    "cmd": {
+      "path": "cmd",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775262907378,
+      "keyFiles": []
+    },
+    "internal": {
+      "path": "internal",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775262907378,
+      "keyFiles": []
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775262907378,
+      "keyFiles": []
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1775262907380,
+      "keyFiles": [
+        "docker-compose.yml"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "cmd/reverb/main.go",
+      "accessCount": 19,
+      "lastAccessed": 1775267796198,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/redis/redis.go",
+      "accessCount": 15,
+      "lastAccessed": 1775267610659,
+      "type": "file"
+    },
+    {
+      "path": "pkg/reverb/client.go",
+      "accessCount": 14,
+      "lastAccessed": 1775267783158,
+      "type": "file"
+    },
+    {
+      "path": "reverb-design-doc.md",
+      "accessCount": 10,
+      "lastAccessed": 1775264595775,
+      "type": "file"
+    },
+    {
+      "path": "pkg/cdc/nats/nats.go",
+      "accessCount": 9,
+      "lastAccessed": 1775267785459,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/store.go",
+      "accessCount": 7,
+      "lastAccessed": 1775267494561,
+      "type": "file"
+    },
+    {
+      "path": "pkg/embedding/ollama/ollama.go",
+      "accessCount": 7,
+      "lastAccessed": 1775267542386,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/redis/redis_test.go",
+      "accessCount": 7,
+      "lastAccessed": 1775267657019,
+      "type": "file"
+    },
+    {
+      "path": "pkg/server/http.go",
+      "accessCount": 6,
+      "lastAccessed": 1775266976339,
+      "type": "file"
+    },
+    {
+      "path": "pkg/server/grpc.go",
+      "accessCount": 5,
+      "lastAccessed": 1775266975612,
+      "type": "file"
+    },
+    {
+      "path": "pkg/cdc/nats/nats_test.go",
+      "accessCount": 5,
+      "lastAccessed": 1775267559760,
+      "type": "file"
+    },
+    {
+      "path": "go.mod",
+      "accessCount": 4,
+      "lastAccessed": 1775265536773,
+      "type": "file"
+    },
+    {
+      "path": "pkg/cdc/listener.go",
+      "accessCount": 4,
+      "lastAccessed": 1775266967956,
+      "type": "file"
+    },
+    {
+      "path": "pkg/metrics/metrics.go",
+      "accessCount": 4,
+      "lastAccessed": 1775266981806,
+      "type": "file"
+    },
+    {
+      "path": "pkg/metrics/tracing.go",
+      "accessCount": 4,
+      "lastAccessed": 1775266982725,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 4,
+      "lastAccessed": 1775267037308,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/embedding/provider.go",
+      "accessCount": 3,
+      "lastAccessed": 1775266967469,
+      "type": "file"
+    },
+    {
+      "path": "pkg/reverb/config.go",
+      "accessCount": 3,
+      "lastAccessed": 1775266997168,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/conformance/conformance.go",
+      "accessCount": 3,
+      "lastAccessed": 1775267494670,
+      "type": "file"
+    },
+    {
+      "path": "pkg/embedding/ollama/ollama_test.go",
+      "accessCount": 3,
+      "lastAccessed": 1775267514389,
+      "type": "file"
+    },
+    {
+      "path": "pkg/embedding/openai/openai.go",
+      "accessCount": 2,
+      "lastAccessed": 1775265666926,
+      "type": "file"
+    },
+    {
+      "path": "pkg/cdc",
+      "accessCount": 2,
+      "lastAccessed": 1775265753070,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/cdc/webhook/webhook.go",
+      "accessCount": 2,
+      "lastAccessed": 1775265756390,
+      "type": "file"
+    },
+    {
+      "path": "pkg/cdc/polling/polling.go",
+      "accessCount": 2,
+      "lastAccessed": 1775265756613,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/badger/badger.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266968375,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/badger/badger_test.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266968887,
+      "type": "file"
+    },
+    {
+      "path": "pkg/server/grpc_test.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266975950,
+      "type": "file"
+    },
+    {
+      "path": "pkg/reverb/options.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266981344,
+      "type": "file"
+    },
+    {
+      "path": "pkg/metrics/metrics_test.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266982328,
+      "type": "file"
+    },
+    {
+      "path": "pkg/metrics/tracing_test.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266983256,
+      "type": "file"
+    },
+    {
+      "path": "pkg/vector/index.go",
+      "accessCount": 2,
+      "lastAccessed": 1775266997896,
+      "type": "file"
+    },
+    {
+      "path": "pkg/reverb",
+      "accessCount": 2,
+      "lastAccessed": 1775267010136,
+      "type": "directory"
+    },
+    {
+      "path": "internal/testutil/entry.go",
+      "accessCount": 2,
+      "lastAccessed": 1775267642555,
+      "type": "file"
+    },
+    {
+      "path": "pkg/store/memory/memory.go",
+      "accessCount": 1,
+      "lastAccessed": 1775265480642,
+      "type": "file"
+    },
+    {
+      "path": "pkg/lineage/invalidator.go",
+      "accessCount": 1,
+      "lastAccessed": 1775265532086,
+      "type": "file"
+    },
+    {
+      "path": "pkg/reverb/client_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1775265539725,
+      "type": "file"
+    },
+    {
+      "path": "pkg/server/proto/reverb.proto",
+      "accessCount": 1,
+      "lastAccessed": 1775265580881,
+      "type": "file"
+    },
+    {
+      "path": "pkg/server/http_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1775265583328,
+      "type": "file"
+    },
+    {
+      "path": "pkg/vector/hnsw/hnsw.go",
+      "accessCount": 1,
+      "lastAccessed": 1775265667941,
+      "type": "file"
+    },
+    {
+      "path": "pkg/vector",
+      "accessCount": 1,
+      "lastAccessed": 1775266991335,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/store",
+      "accessCount": 1,
+      "lastAccessed": 1775267010662,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/store/memory",
+      "accessCount": 1,
+      "lastAccessed": 1775267029115,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/store/redis",
+      "accessCount": 1,
+      "lastAccessed": 1775267044346,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/cdc/nats",
+      "accessCount": 1,
+      "lastAccessed": 1775267511216,
+      "type": "directory"
+    },
+    {
+      "path": "pkg/embedding/ollama",
+      "accessCount": 1,
+      "lastAccessed": 1775267511555,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}

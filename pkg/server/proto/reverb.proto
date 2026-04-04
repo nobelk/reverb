@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package reverb.v1;
+
+option go_package = "github.com/org/reverb/pkg/server/proto";
+
+// ReverbService provides semantic response caching with knowledge-aware invalidation.
+service ReverbService {
+  // Lookup checks the cache for a matching response.
+  rpc Lookup(LookupRequest) returns (LookupResponse);
+
+  // Store writes a new cache entry.
+  rpc Store(StoreRequest) returns (StoreResponse);
+
+  // Invalidate invalidates all cache entries that depend on the given source.
+  rpc Invalidate(InvalidateRequest) returns (InvalidateResponse);
+
+  // DeleteEntry removes a single cache entry by ID.
+  rpc DeleteEntry(DeleteEntryRequest) returns (DeleteEntryResponse);
+
+  // GetStats returns cache statistics.
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+message LookupRequest {
+  string namespace = 1;
+  string prompt    = 2;
+  string model_id  = 3;
+}
+
+message LookupResponse {
+  bool        hit        = 1;
+  string      tier       = 2;
+  float       similarity = 3;
+  CacheEntry  entry      = 4;
+}
+
+message CacheEntry {
+  string            id             = 1;
+  int64             created_at_unix = 2;
+  int64             expires_at_unix = 3;
+  string            namespace      = 4;
+  string            prompt         = 5;
+  string            model_id       = 6;
+  string            response       = 7;
+  map<string,string> response_meta = 8;
+  repeated SourceRef sources       = 9;
+  int64             hit_count      = 10;
+}
+
+message SourceRef {
+  string source_id    = 1;
+  string content_hash = 2;
+}
+
+message StoreRequest {
+  string            namespace     = 1;
+  string            prompt        = 2;
+  string            model_id      = 3;
+  string            response      = 4;
+  map<string,string> response_meta = 5;
+  repeated SourceRef sources      = 6;
+  int32             ttl_seconds   = 7;
+}
+
+message StoreResponse {
+  string id             = 1;
+  int64  created_at_unix = 2;
+}
+
+message InvalidateRequest {
+  string source_id = 1;
+}
+
+message InvalidateResponse {
+  int32 invalidated_count = 1;
+}
+
+message DeleteEntryRequest {
+  string id = 1;
+}
+
+message DeleteEntryResponse {}
+
+message GetStatsRequest {}
+
+message GetStatsResponse {
+  int64            total_entries        = 1;
+  repeated string  namespaces           = 2;
+  int64            exact_hits_total     = 3;
+  int64            semantic_hits_total  = 4;
+  int64            misses_total         = 5;
+  int64            invalidations_total  = 6;
+}

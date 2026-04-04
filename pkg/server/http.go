@@ -152,6 +152,7 @@ type statsResp struct {
 	SemanticHitsTotal  int64    `json:"semantic_hits_total"`
 	MissesTotal        int64    `json:"misses_total"`
 	InvalidationsTotal int64    `json:"invalidations_total"`
+	HitRate            float64  `json:"hit_rate"`
 }
 
 type healthResp struct {
@@ -310,6 +311,7 @@ func (s *HTTPServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		SemanticHitsTotal:  stats.SemanticHitsTotal,
 		MissesTotal:        stats.MissesTotal,
 		InvalidationsTotal: stats.InvalidationsTotal,
+		HitRate:            stats.HitRate,
 	})
 }
 
