@@ -100,6 +100,12 @@
       "type": "file"
     },
     {
+      "path": "README.md",
+      "accessCount": 17,
+      "lastAccessed": 1775273565813,
+      "type": "file"
+    },
+    {
       "path": "pkg/store/redis/redis.go",
       "accessCount": 16,
       "lastAccessed": 1775269851022,
@@ -109,12 +115,6 @@
       "path": "pkg/reverb/client.go",
       "accessCount": 15,
       "lastAccessed": 1775269771973,
-      "type": "file"
-    },
-    {
-      "path": "README.md",
-      "accessCount": 15,
-      "lastAccessed": 1775272257795,
       "type": "file"
     },
     {

@@ -1,8 +1,8 @@
 # Reverb
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/org/reverb/ci.yml?branch=main&label=build)](https://github.com/org/reverb/actions)
-[![Coverage](https://img.shields.io/codecov/c/github/org/reverb?label=coverage)](https://codecov.io/gh/org/reverb)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/intuitai/reverb/ci.yml?branch=main&label=build)](https://github.com/intuitai/reverb/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/intuitai/reverb?label=coverage)](https://codecov.io/gh/intuitai/reverb)
 
 **Semantic Response Cache with Knowledge-Aware Invalidation**
 
