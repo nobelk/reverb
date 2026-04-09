@@ -29,7 +29,7 @@ reverb.Store(req, resp, sources)
 
 - **Two-tier cache** — Exact match (SHA-256 hash, sub-millisecond) and semantic similarity (embedding cosine, ~50ms)
 - **Knowledge-aware invalidation** — Tracks which source documents contributed to each cached response; automatically invalidates when sources change
-- **CDC listeners** — Webhook, polling, and NATS-based change-data-capture for source document updates
+- **CDC listeners** — Webhook and NATS change-data-capture for source document updates (polling available in library mode)
 - **Namespace isolation** — Logical partitions for multi-tenant or multi-use-case deployments
 - **Pluggable backends** — Interfaces for embedding providers, vector indices, and persistence stores (memory, Redis, BadgerDB)
 - **Standalone HTTP & gRPC servers** — REST and gRPC APIs for language-agnostic integration
@@ -119,7 +119,7 @@ curl -X POST http://localhost:8080/v1/store \
     "prompt": "How do I reset my password?",
     "model_id": "gpt-4o",
     "response": "Go to Settings > Security > Reset Password.",
-    "sources": [{"source_id": "doc:password-guide", "content_hash": "a1b2c3..."}],
+    "sources": [{"source_id": "doc:password-guide", "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],
     "ttl_seconds": 86400
   }'
 
@@ -149,6 +149,8 @@ The `reverb.v1.ReverbService` exposes the same operations over gRPC (see `pkg/se
 | `Invalidate` | Invalidate entries by source ID |
 | `DeleteEntry` | Delete a single cache entry |
 | `GetStats` | Cache statistics |
+
+> **Note:** The current gRPC implementation uses hand-written Go request/response types registered via a manual `grpc.ServiceDesc` rather than `protoc`-generated code. The `.proto` file documents the intended wire contract but is not used for code generation. A future release will migrate to generated protobuf types for full client interoperability.
 
 ## Architecture
 
@@ -328,6 +330,75 @@ reverb.Config{
 
 - **`ScopeByModel`** — When `true`, semantic search results are filtered by model ID so queries for `gpt-4o` cannot match entries stored for a different model.
 - **TTL** — In the Go API, use `TTL time.Duration` on `StoreRequest`. The HTTP API accepts `ttl_seconds` as an integer.
+
+## Operator Configuration
+
+The standalone server (`cmd/reverb`) accepts a YAML configuration file via `--config` and supports environment variable overrides for sensitive values.
+
+### Full Configuration Reference
+
+```yaml
+# Core cache settings
+default_namespace: "default"
+default_ttl: "24h"
+similarity_threshold: 0.95
+semantic_top_k: 5
+scope_by_model: true
+
+# Server transport
+server:
+  http_addr: ":8080"
+  grpc_addr: ":9090"       # omit to disable gRPC
+
+# Persistence backend: "memory" (default), "redis", or "badger"
+store:
+  backend: "memory"
+  redis_addr: "localhost:6379"
+  redis_password: ""
+  redis_db: 0
+  redis_prefix: "reverb:"
+  badger_path: "/tmp/reverb-badger"
+
+# Embedding provider: "fake" (default), "openai", or "ollama"
+embedding:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  api_key: ""              # prefer REVERB_EMBEDDING_API_KEY env var
+  base_url: ""             # custom endpoint (optional)
+  dimensions: 1536
+
+# Vector index: "flat" (default) or "hnsw"
+vector:
+  backend: "hnsw"
+  hnsw_m: 16
+  hnsw_ef_construction: 200
+  hnsw_ef_search: 50
+
+# Change-data-capture listener
+cdc:
+  enabled: false
+  mode: "webhook"          # "webhook" or "nats" (polling is library-only)
+  webhook_addr: ":9091"
+  webhook_path: "/hooks/source-changed"
+  nats_url: "nats://localhost:4222"
+  nats_subject: "reverb.changes"
+
+# Metrics (not yet wired into the standalone binary)
+metrics:
+  enabled: false
+  addr: ":9100"
+```
+
+### Environment Variable Overrides
+
+| Variable | Overrides | Example |
+|---|---|---|
+| `REVERB_DEFAULT_TTL` | `default_ttl` | `"1h"`, `"30m"` |
+| `REVERB_SIMILARITY_THRESHOLD` | `similarity_threshold` | `"0.90"` |
+| `REVERB_EMBEDDING_API_KEY` | `embedding.api_key` | API key string |
+| `REVERB_REDIS_PASSWORD` | `store.redis_password` | Password string |
+
+> **Note:** The `metrics` section is defined in the configuration schema (`pkg/reverb/config.go`) but the metrics HTTP server is not yet started by the standalone binary. The container `Dockerfile` exposes port `9100` in anticipation of this feature.
 
 ## Dependencies
 
