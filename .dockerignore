@@ -1,0 +1,9 @@
+.git
+bin/
+coverage.*
+data/
+*.md
+!README.md
+.github/
+test/
+.omc/

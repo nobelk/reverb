@@ -1,0 +1,5 @@
+services:
+  semantic-cache-example:
+    build:
+      context: ../..
+      dockerfile: examples/semantic-cache/Dockerfile

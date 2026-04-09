@@ -157,6 +157,9 @@ The `reverb.v1.ReverbService` exposes the same operations over gRPC (see `pkg/se
 ```
 reverb/
 ├── cmd/reverb/              # Standalone server binary
+├── examples/
+│   ├── basic/               # Core workflow: store, lookup, stats, invalidate
+│   └── semantic-cache/      # Full feature demo: namespaces, lineage, two-tier caching
 ├── pkg/
 │   ├── reverb/              # Public API — Client facade, Config
 │   ├── cache/
@@ -217,6 +220,56 @@ All backends are pluggable via interfaces:
 2. Lineage index maps source ID to affected cache entry IDs
 3. If source deleted (zero hash): invalidate all dependent entries
 4. Otherwise: compare stored content hash against new hash; if changed, delete entries from both store and vector index
+
+## Examples
+
+The `examples/` directory contains self-contained programs that demonstrate how to integrate reverb into your own project. Each example runs with zero external dependencies (no Redis, no OpenAI key, no Docker required for local runs).
+
+### Basic Usage (`examples/basic/`)
+
+Start here if you are new to reverb. This example walks through the core workflow:
+
+1. Create a client with in-memory backends
+2. Store cache entries with source lineage
+3. Look up prompts (exact hit vs. miss)
+4. View cache statistics
+5. Invalidate entries when a source document changes
+
+```bash
+# Run locally
+go run ./examples/basic
+
+# Run in Docker
+docker build -f examples/basic/Dockerfile -t reverb-basic-example .
+docker run --rm reverb-basic-example
+```
+
+### Semantic Cache (`examples/semantic-cache/`)
+
+A deeper walkthrough that covers the full feature set:
+
+- **Exact-match hits** — identical prompts return instantly via SHA-256 hash
+- **Cache misses** — unrelated prompts fall through both tiers
+- **Namespace isolation** — entries in `"billing-bot"` are invisible to `"support-bot"`
+- **Source lineage & invalidation** — entries tied to a source document are automatically evicted when that source changes
+- **Cache statistics** — hit counts, miss counts, hit rate, namespace list
+
+```bash
+# Run locally
+go run ./examples/semantic-cache
+
+# Run in Docker
+docker compose -f examples/semantic-cache/docker-compose.yml up --build
+```
+
+> **Note on semantic vs. exact hits:** Both examples use `fake.New(64)`, a deterministic hash-based embedder suitable for testing. With this embedder, only identical prompts produce matching vectors, so you will only see `tier=exact` hits. To observe true `tier=semantic` hits (where paraphrases like *"How do I reset my password?"* and *"password reset help"* match), swap in a real embedding provider:
+>
+> ```go
+> // Instead of: fake.New(64)
+> embedder := openai.New(openai.Config{APIKey: os.Getenv("OPENAI_API_KEY")})
+> // or
+> embedder := ollama.New("http://localhost:11434", "nomic-embed-text")
+> ```
 
 ## Build
 
