@@ -3,9 +3,11 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -176,6 +178,50 @@ func TestOpenAI_Embed_ContextCancellation(t *testing.T) {
 	assert.Nil(t, vec)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestOpenAI_Embed_LargeBodyLimit(t *testing.T) {
+	// Serve exactly 10 MB + 1 byte of non-JSON data to verify that the provider
+	// caps its read at 10 MB via io.LimitReader.  The body is not valid JSON so
+	// the expected error is a decode error, not a read error.
+	const limit = 10 << 20        // 10 MB
+	const bodySize = limit + 1024 // slightly over the limit
+
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Set Content-Length so the HTTP layer knows exactly how many bytes to
+		// expect.  This lets the server finish writing without blocking and
+		// allows the client to reset the connection cleanly after the limit.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", bodySize))
+		w.WriteHeader(http.StatusOK)
+
+		chunk := make([]byte, 4096)
+		for i := range chunk {
+			chunk[i] = 'x'
+		}
+		written := 0
+		for written < bodySize {
+			n := bodySize - written
+			if n > len(chunk) {
+				n = len(chunk)
+			}
+			w.Write(chunk[:n])
+			written += n
+		}
+	})
+
+	p := New(Config{
+		APIKey:  "test-api-key",
+		BaseURL: srv.URL,
+	})
+
+	// Use a short timeout so the test cannot hang if the limit is not enforced.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := p.Embed(ctx, "hello")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode response")
 }
 
 func TestOpenAI_Embed_CustomBaseURL(t *testing.T) {

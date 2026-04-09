@@ -452,3 +452,42 @@ func TestClient_ConcurrentLookupAndStore(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestClient_ConcurrentCloseAndLookup(t *testing.T) {
+	c, _ := newTestClient(t, nil)
+	ctx := context.Background()
+
+	// Store an entry so Lookup has something to hit.
+	_, err := c.Store(ctx, reverb.StoreRequest{
+		Namespace: "ns",
+		Prompt:    "concurrent close test prompt",
+		ModelID:   "model",
+		Response:  "response",
+	})
+	require.NoError(t, err)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines + 1)
+
+	// Launch lookup goroutines concurrently.
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = c.Lookup(ctx, reverb.LookupRequest{
+				Namespace: "ns",
+				Prompt:    "concurrent close test prompt",
+				ModelID:   "model",
+			})
+		}()
+	}
+
+	// Close concurrently with lookups.
+	go func() {
+		defer wg.Done()
+		_ = c.Close()
+	}()
+
+	wg.Wait()
+	// If we reach here without panic or race detector complaint, the test passes.
+}

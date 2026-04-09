@@ -109,18 +109,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Start HTTP server
 	addr := cfg.Server.HTTPAddr
 	if addr == "" {
 		addr = ":8080"
 	}
 	srv := server.NewHTTPServer(client, addr)
+	logger.Info("starting HTTP server", "addr", addr, "store", cfg.Store.Backend, "embedder", cfg.Embedding.Provider)
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- srv.ListenAndServe()
+		errCh <- srv.Start(ctx)
 	}()
-	logger.Info("starting HTTP server", "addr", addr, "store", cfg.Store.Backend, "embedder", cfg.Embedding.Provider)
 
 	// Start gRPC server if configured
 	if cfg.Server.GRPCAddr != "" {
@@ -133,19 +132,9 @@ func main() {
 		}()
 	}
 
-	select {
-	case <-ctx.Done():
-		logger.Info("shutting down server")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer shutdownCancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			logger.Error("HTTP shutdown error", "error", err)
-		}
-	case err := <-errCh:
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-			os.Exit(1)
-		}
+	if err := <-errCh; err != nil {
+		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+		os.Exit(1)
 	}
 }
 

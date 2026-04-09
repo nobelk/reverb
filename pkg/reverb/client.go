@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,6 +83,7 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	closed atomic.Bool
 }
 
 // New creates a new Reverb client with the given configuration and pre-built dependencies.
@@ -315,11 +317,13 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 		return nil, err
 	}
 	if exactResult.Hit {
-		c.wg.Add(1)
-		go func() {
-			defer c.wg.Done()
-			_ = c.store.IncrementHit(context.Background(), exactResult.Entry.ID)
-		}()
+		if !c.closed.Load() {
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				_ = c.store.IncrementHit(c.ctx, exactResult.Entry.ID)
+			}()
+		}
 		c.collector.ExactHits.Add(1)
 		c.logger.Info("cache hit",
 			"tier", "exact",
@@ -339,11 +343,13 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 		return nil, err
 	}
 	if semanticResult.Hit {
-		c.wg.Add(1)
-		go func() {
-			defer c.wg.Done()
-			_ = c.store.IncrementHit(context.Background(), semanticResult.Entry.ID)
-		}()
+		if !c.closed.Load() {
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				_ = c.store.IncrementHit(c.ctx, semanticResult.Entry.ID)
+			}()
+		}
 		c.collector.SemanticHits.Add(1)
 		c.logger.Info("cache hit",
 			"tier", "semantic",
@@ -494,6 +500,7 @@ func (c *Client) Stats(ctx context.Context) (*Stats, error) {
 
 // Close shuts down the client and releases resources.
 func (c *Client) Close() error {
+	c.closed.Store(true)
 	if c.cancel != nil {
 		c.cancel()
 	}
