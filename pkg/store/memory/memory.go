@@ -6,8 +6,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/store"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/store/memory"
 
 // Store is an in-memory store. All maps are protected by a single RWMutex
 // for simplicity and correctness.
@@ -36,7 +42,13 @@ func hashKey(namespace string, hash [32]byte) string {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "memory"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	s.mu.RLock()
@@ -62,7 +74,13 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get_by_hash")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "memory"), attribute.String("reverb.namespace", namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	key := hashKey(namespace, hash)
@@ -89,7 +107,13 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.put")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "memory"), attribute.String("reverb.entry_id", entry.ID), attribute.String("reverb.namespace", entry.Namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -125,7 +149,13 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "memory"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	s.mu.Lock()
@@ -147,7 +177,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete_batch")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "memory"), attribute.Int("reverb.batch_size", len(ids)))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	s.mu.Lock()

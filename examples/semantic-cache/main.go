@@ -22,10 +22,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/org/reverb/pkg/embedding/fake"
-	"github.com/org/reverb/pkg/reverb"
-	"github.com/org/reverb/pkg/store/memory"
-	"github.com/org/reverb/pkg/vector/flat"
+	"github.com/nobelk/reverb/pkg/embedding/fake"
+	"github.com/nobelk/reverb/pkg/reverb"
+	"github.com/nobelk/reverb/pkg/store/memory"
+	"github.com/nobelk/reverb/pkg/vector/flat"
 )
 
 func main() {

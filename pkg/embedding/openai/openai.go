@@ -8,8 +8,14 @@ import (
 	"io"
 	"net/http"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/embedding"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/embedding/openai"
 
 // Compile-time check that Provider implements embedding.Provider.
 var _ embedding.Provider = (*Provider)(nil)
@@ -91,6 +97,14 @@ func (p *Provider) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 
 // doEmbed performs the actual API call to the OpenAI embeddings endpoint.
 func (p *Provider) doEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.embed.openai")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("reverb.embedding.provider", "openai"),
+		attribute.String("reverb.embedding.model", p.cfg.Model),
+		attribute.Int("reverb.embedding.input_count", len(texts)),
+	)
+
 	reqBody := embeddingRequest{
 		Model: p.cfg.Model,
 		Input: texts,
@@ -121,16 +135,24 @@ func (p *Provider) doEmbed(ctx context.Context, texts []string) ([][]float32, er
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai: API returned status %d: %s", resp.StatusCode, string(respBody))
+		err := fmt.Errorf("openai: API returned status %d: %s", resp.StatusCode, string(respBody))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var embResp embeddingResponse
 	if err := json.Unmarshal(respBody, &embResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("openai: failed to decode response: %w", err)
 	}
 
 	if len(embResp.Data) == 0 {
-		return nil, fmt.Errorf("openai: empty response, no embeddings returned")
+		err := fmt.Errorf("openai: empty response, no embeddings returned")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	// Sort results by index to ensure correct ordering.

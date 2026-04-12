@@ -6,9 +6,15 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/store"
 	"github.com/nobelk/reverb/pkg/vector"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/lineage"
 
 // ChangeEvent represents a source document that has changed.
 type ChangeEvent struct {
@@ -44,10 +50,18 @@ func NewInvalidator(s store.Store, vi vector.Index, idx *Index, logger *slog.Log
 // ProcessEvent handles a single change event, invalidating affected cache entries.
 // Returns the number of entries invalidated.
 func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (int, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.lineage.process_event")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.source_id", event.SourceID))
+
 	entryIDs, err := inv.index.EntriesForSource(ctx, event.SourceID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return 0, err
 	}
+
+	span.SetAttributes(attribute.Int("reverb.linked_entries", len(entryIDs)))
 
 	var toDelete []string
 	isDeleted := event.ContentHash == [32]byte{} // zero hash means source deleted
@@ -79,6 +93,7 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 	}
 
 	if len(toDelete) == 0 {
+		span.SetAttributes(attribute.Int("reverb.invalidated_count", 0))
 		return 0, nil
 	}
 
@@ -91,9 +106,12 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 
 	// Delete from store in batch
 	if err := inv.store.DeleteBatch(ctx, toDelete); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return 0, err
 	}
 
+	span.SetAttributes(attribute.Int("reverb.invalidated_count", len(toDelete)))
 	inv.logger.Info("invalidated entries",
 		"source_id", event.SourceID,
 		"count", len(toDelete))

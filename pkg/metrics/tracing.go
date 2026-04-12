@@ -5,6 +5,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -27,11 +28,10 @@ func NewTracerWithProvider(tp trace.TracerProvider) *Tracer {
 
 // StartLookupSpan starts a span for a cache lookup operation.
 // Callers must call the returned span.End() when the operation completes.
-func (t *Tracer) StartLookupSpan(ctx context.Context, namespace, tier string) (context.Context, trace.Span) {
+func (t *Tracer) StartLookupSpan(ctx context.Context, namespace string) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "reverb.lookup")
 	span.SetAttributes(
 		attribute.String("reverb.namespace", namespace),
-		attribute.String("reverb.tier", tier),
 	)
 	return ctx, span
 }
@@ -46,12 +46,19 @@ func (t *Tracer) StartStoreSpan(ctx context.Context, namespace string) (context.
 }
 
 // StartInvalidateSpan starts a span for a cache invalidation operation.
-func (t *Tracer) StartInvalidateSpan(ctx context.Context, namespace, sourceID string, sourcesCount int) (context.Context, trace.Span) {
+func (t *Tracer) StartInvalidateSpan(ctx context.Context, sourceID string) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "reverb.invalidate")
 	span.SetAttributes(
-		attribute.String("reverb.namespace", namespace),
 		attribute.String("reverb.source_id", sourceID),
-		attribute.Int("reverb.sources_count", sourcesCount),
+	)
+	return ctx, span
+}
+
+// StartInvalidateEntrySpan starts a span for a single-entry invalidation.
+func (t *Tracer) StartInvalidateEntrySpan(ctx context.Context, entryID string) (context.Context, trace.Span) {
+	ctx, span := t.tracer.Start(ctx, "reverb.invalidate_entry")
+	span.SetAttributes(
+		attribute.String("reverb.entry_id", entryID),
 	)
 	return ctx, span
 }
@@ -94,6 +101,24 @@ func (t *Tracer) StartStorePutSpan(ctx context.Context, entryID, namespace strin
 	return ctx, span
 }
 
+// StartStoreDeleteSpan starts a child span for a store Delete operation.
+func (t *Tracer) StartStoreDeleteSpan(ctx context.Context, entryID string) (context.Context, trace.Span) {
+	ctx, span := t.tracer.Start(ctx, "reverb.store.delete")
+	span.SetAttributes(
+		attribute.String("reverb.entry_id", entryID),
+	)
+	return ctx, span
+}
+
+// StartStoreDeleteBatchSpan starts a child span for a store DeleteBatch operation.
+func (t *Tracer) StartStoreDeleteBatchSpan(ctx context.Context, count int) (context.Context, trace.Span) {
+	ctx, span := t.tracer.Start(ctx, "reverb.store.delete_batch")
+	span.SetAttributes(
+		attribute.Int("reverb.batch_size", count),
+	)
+	return ctx, span
+}
+
 // SetHitAttributes adds hit/similarity attributes to a span after a lookup completes.
 func SetHitAttributes(span trace.Span, hit bool, similarity float64, entryID string) {
 	span.SetAttributes(
@@ -101,4 +126,10 @@ func SetHitAttributes(span trace.Span, hit bool, similarity float64, entryID str
 		attribute.Float64("reverb.similarity", similarity),
 		attribute.String("reverb.entry_id", entryID),
 	)
+}
+
+// RecordError records an error on a span and sets the span status to Error.
+func RecordError(span trace.Span, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }

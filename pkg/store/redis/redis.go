@@ -9,8 +9,14 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/store"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/store/redis"
 
 // incrementHitScript atomically reads the entry JSON, increments HitCount,
 // updates LastHitAt, and writes it back — all inside a single Redis eval.
@@ -95,7 +101,13 @@ func (s *Store) lineageKey(sourceID string) string {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	data, err := s.client.HGet(ctx, s.entryKey(id), "data").Bytes()
@@ -103,17 +115,27 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 		if errors.Is(err, goredis.Nil) {
 			return nil, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("redis HGet: %w", err)
 	}
 	var entry store.CacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("unmarshal entry: %w", err)
 	}
 	return &entry, nil
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get_by_hash")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.namespace", namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	id, err := s.client.Get(ctx, s.hashKey(namespace, hash)).Result()
@@ -127,7 +149,13 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.put")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", entry.ID), attribute.String("reverb.namespace", entry.Namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -196,7 +224,13 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	entry, err := s.Get(ctx, id)
@@ -221,11 +255,19 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete_batch")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.Int("reverb.batch_size", len(ids)))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	for _, id := range ids {
 		if err := s.Delete(ctx, id); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return err
 		}
 	}

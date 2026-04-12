@@ -11,6 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"gopkg.in/yaml.v3"
 
 	"github.com/nobelk/reverb/pkg/cdc"
@@ -60,6 +65,20 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+
+	// Initialize OpenTelemetry tracing
+	shutdownTracer, err := initTracer(context.Background(), cfg)
+	if err != nil {
+		logger.Error("failed to initialize OTel tracer", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shutdownCtx); err != nil {
+			logger.Error("failed to shut down OTel tracer", "error", err)
+		}
+	}()
 
 	// Override HTTP addr from flag if explicitly set
 	if *httpAddr != ":8080" || cfg.Server.HTTPAddr == "" {
@@ -156,6 +175,18 @@ func applyEnvOverrides(cfg *reverb.Config) {
 	if v := os.Getenv("REVERB_REDIS_PASSWORD"); v != "" {
 		cfg.Store.RedisPassword = v
 	}
+	if v := os.Getenv("REVERB_OTEL_ENABLED"); v == "true" || v == "1" {
+		cfg.OTel.Enabled = true
+	}
+	if v := os.Getenv("REVERB_OTEL_ENDPOINT"); v != "" {
+		cfg.OTel.Endpoint = v
+	}
+	if v := os.Getenv("REVERB_OTEL_SERVICE_NAME"); v != "" {
+		cfg.OTel.ServiceName = v
+	}
+	if v := os.Getenv("REVERB_OTEL_INSECURE"); v == "true" || v == "1" {
+		cfg.OTel.Insecure = true
+	}
 }
 
 // newStore creates a store.Store based on cfg.Store.Backend.
@@ -223,6 +254,52 @@ func newVectorIndex(cfg reverb.Config) (vector.Index, error) {
 	default:
 		return flat.New(), nil
 	}
+}
+
+// initTracer sets up the OpenTelemetry TracerProvider with an OTLP HTTP exporter.
+// Returns a shutdown function that flushes remaining spans.
+func initTracer(ctx context.Context, cfg reverb.Config) (func(context.Context) error, error) {
+	noop := func(context.Context) error { return nil }
+	if !cfg.OTel.Enabled {
+		return noop, nil
+	}
+
+	opts := []otlptracehttp.Option{}
+	if cfg.OTel.Endpoint != "" {
+		opts = append(opts, otlptracehttp.WithEndpoint(cfg.OTel.Endpoint))
+	}
+	if cfg.OTel.Insecure {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+
+	exporter, err := otlptracehttp.New(ctx, opts...)
+	if err != nil {
+		return noop, fmt.Errorf("otel: create exporter: %w", err)
+	}
+
+	serviceName := cfg.OTel.ServiceName
+	if serviceName == "" {
+		serviceName = "reverb"
+	}
+
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String(serviceName),
+		),
+	)
+	if err != nil {
+		return noop, fmt.Errorf("otel: create resource: %w", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+
+	return tp.Shutdown, nil
 }
 
 // newCDCListener creates a cdc.Listener based on cfg.CDC.Mode.

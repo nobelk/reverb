@@ -9,8 +9,14 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/embedding"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/embedding/ollama"
 
 // Compile-time check that Provider implements embedding.Provider.
 var _ embedding.Provider = (*Provider)(nil)
@@ -75,6 +81,13 @@ func (p *Provider) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 
 // doEmbed performs the actual API call to the Ollama embeddings endpoint.
 func (p *Provider) doEmbed(ctx context.Context, text string) ([]float32, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.embed.ollama")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("reverb.embedding.provider", "ollama"),
+		attribute.String("reverb.embedding.model", p.model),
+	)
+
 	reqBody := embeddingRequest{
 		Model:  p.model,
 		Prompt: text,
@@ -104,17 +117,26 @@ func (p *Provider) doEmbed(ctx context.Context, text string) ([]float32, error) 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama: API returned status %d: %s", resp.StatusCode, string(respBody))
+		err := fmt.Errorf("ollama: API returned status %d: %s", resp.StatusCode, string(respBody))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var embResp embeddingResponse
 	if err := json.Unmarshal(respBody, &embResp); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("ollama: failed to decode response: %w", err)
 	}
 
 	if len(embResp.Embedding) == 0 {
-		return nil, fmt.Errorf("ollama: empty response, no embedding returned")
+		err := fmt.Errorf("ollama: empty response, no embedding returned")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
+	span.SetAttributes(attribute.Int("reverb.embedding.dimensions", len(embResp.Embedding)))
 	return embResp.Embedding, nil
 }

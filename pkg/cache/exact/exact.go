@@ -4,8 +4,14 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/store"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/cache/exact"
 
 // Clock abstracts time for testability.
 type Clock interface {
@@ -39,16 +45,25 @@ type LookupResult struct {
 
 // Lookup checks for an exact hash match in the store.
 func (c *Cache) Lookup(ctx context.Context, namespace string, hash [32]byte) (*LookupResult, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.exact.lookup")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.namespace", namespace))
+
 	entry, err := c.store.GetByHash(ctx, namespace, hash)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	if entry == nil {
+		span.SetAttributes(attribute.Bool("reverb.hit", false))
 		return &LookupResult{Hit: false}, nil
 	}
 	// Check expiry
 	if !entry.ExpiresAt.IsZero() && c.clock.Now().After(entry.ExpiresAt) {
+		span.SetAttributes(attribute.Bool("reverb.hit", false), attribute.Bool("reverb.expired", true))
 		return &LookupResult{Hit: false}, nil
 	}
+	span.SetAttributes(attribute.Bool("reverb.hit", true), attribute.String("reverb.entry_id", entry.ID))
 	return &LookupResult{Hit: true, Entry: entry}, nil
 }

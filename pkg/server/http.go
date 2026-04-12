@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/nobelk/reverb/pkg/reverb"
 	"github.com/nobelk/reverb/pkg/store"
 )
@@ -37,7 +39,7 @@ func NewHTTPServer(client *reverb.Client, addr string) *HTTPServer {
 		logger: logger,
 		server: &http.Server{
 			Addr:              addr,
-			Handler:           mux,
+			Handler:           otelhttp.NewHandler(mux, "reverb-http"),
 			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}

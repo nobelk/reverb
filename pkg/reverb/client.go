@@ -78,6 +78,7 @@ type Client struct {
 	clock        Clock
 	logger       *slog.Logger
 	collector    *metrics.Collector
+	tracer       *metrics.Tracer
 	cdcListener  cdc.Listener
 
 	ctx    context.Context
@@ -107,6 +108,7 @@ func New(cfg Config, embedder embedding.Provider, s store.Store, vi vector.Index
 		clock:       cfg.Clock,
 		logger:      logger,
 		collector:   metrics.NewCollector(),
+		tracer:      metrics.NewTracer(),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -307,6 +309,9 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 		ns = c.cfg.DefaultNamespace
 	}
 
+	ctx, span := c.tracer.StartLookupSpan(ctx, ns)
+	defer span.End()
+
 	normalized := normalize.Normalize(req.Prompt)
 	modelID := req.ModelID
 
@@ -314,6 +319,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 	hash := hashutil.PromptHash(ns, normalized, modelID)
 	exactResult, err := c.exactTier.Lookup(ctx, ns, hash)
 	if err != nil {
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	if exactResult.Hit {
@@ -325,6 +331,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.ExactHits.Add(1)
+		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID)
 		c.logger.Info("cache hit",
 			"tier", "exact",
 			"namespace", ns,
@@ -340,6 +347,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 	// Tier 2: Semantic match
 	semanticResult, err := c.semanticTier.Lookup(ctx, ns, normalized, modelID)
 	if err != nil {
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	if semanticResult.Hit {
@@ -351,6 +359,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.SemanticHits.Add(1)
+		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID)
 		c.logger.Info("cache hit",
 			"tier", "semantic",
 			"namespace", ns,
@@ -366,6 +375,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 
 	// Miss
 	c.collector.Misses.Add(1)
+	metrics.SetHitAttributes(span, false, 0, "")
 	return &LookupResponse{Hit: false}, nil
 }
 
@@ -375,6 +385,9 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 	if ns == "" {
 		ns = c.cfg.DefaultNamespace
 	}
+
+	ctx, span := c.tracer.StartStoreSpan(ctx, ns)
+	defer span.End()
 
 	normalized := normalize.Normalize(req.Prompt)
 	hash := hashutil.PromptHash(ns, normalized, req.ModelID)
@@ -431,6 +444,7 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 	}
 
 	if err := c.store.Put(ctx, entry); err != nil {
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 
@@ -459,12 +473,16 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 
 // Invalidate manually invalidates all cache entries that depend on the given source ID.
 func (c *Client) Invalidate(ctx context.Context, sourceID string) (int, error) {
+	ctx, span := c.tracer.StartInvalidateSpan(ctx, sourceID)
+	defer span.End()
+
 	count, err := c.invalidator.ProcessEvent(ctx, lineage.ChangeEvent{
 		SourceID:    sourceID,
 		ContentHash: [32]byte{}, // zero → treat as deletion
 		Timestamp:   c.clock.Now(),
 	})
 	if err != nil {
+		metrics.RecordError(span, err)
 		return 0, err
 	}
 	c.collector.Invalidations.Add(int64(count))
@@ -473,11 +491,18 @@ func (c *Client) Invalidate(ctx context.Context, sourceID string) (int, error) {
 
 // InvalidateEntry deletes a single cache entry by ID.
 func (c *Client) InvalidateEntry(ctx context.Context, entryID string) error {
+	ctx, span := c.tracer.StartInvalidateEntrySpan(ctx, entryID)
+	defer span.End()
+
 	// Remove from vector index
 	if err := c.vectorIndex.Delete(ctx, entryID); err != nil {
 		c.logger.Error("failed to delete vector", "entry_id", entryID, "error", err)
 	}
-	return c.store.Delete(ctx, entryID)
+	if err := c.store.Delete(ctx, entryID); err != nil {
+		metrics.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 // Stats returns cache statistics.

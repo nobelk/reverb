@@ -40,3 +40,10 @@ func WithMetricsCollector(collector *metrics.Collector) Option {
 		c.collector = collector
 	}
 }
+
+// WithTracer replaces the default OTel tracer with the provided one.
+func WithTracer(tracer *metrics.Tracer) Option {
+	return func(c *Client) {
+		c.tracer = tracer
+	}
+}

@@ -28,6 +28,7 @@ type Config struct {
 	CDC       CDCConfig       `yaml:"cdc"`
 	Server    ServerConfig    `yaml:"server"`
 	Metrics   MetricsConfig   `yaml:"metrics"`
+	OTel      OTelConfig      `yaml:"otel"`
 
 	// Clock — injectable for tests (defaults to real time)
 	Clock Clock `yaml:"-"`
@@ -81,6 +82,14 @@ type ServerConfig struct {
 type MetricsConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Addr    string `yaml:"addr"`
+}
+
+// OTelConfig holds OpenTelemetry configuration.
+type OTelConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Endpoint    string `yaml:"endpoint"`
+	ServiceName string `yaml:"service_name"`
+	Insecure    bool   `yaml:"insecure"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

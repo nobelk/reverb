@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -232,6 +233,7 @@ type GRPCServer struct {
 // NewGRPCServer creates a new GRPCServer wired to the given Reverb client.
 func NewGRPCServer(client *reverb.Client, opts ...grpc.ServerOption) *GRPCServer {
 	s := &GRPCServer{client: client}
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	s.server = grpc.NewServer(opts...)
 	s.server.RegisterService(&ReverbServiceDesc, s)
 	return s

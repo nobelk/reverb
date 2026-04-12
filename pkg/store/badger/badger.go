@@ -9,8 +9,14 @@ import (
 	"time"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/nobelk/reverb/pkg/store"
 )
+
+const tracerName = "github.com/nobelk/reverb/pkg/store/badger"
 
 const (
 	prefixHash    = "hash:"
@@ -59,7 +65,13 @@ func lineagePrefix(sourceID string) []byte {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "badger"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	var entry *store.CacheEntry
@@ -87,7 +99,13 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get_by_hash")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "badger"), attribute.String("reverb.namespace", namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	var entry *store.CacheEntry
@@ -129,7 +147,13 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.put")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "badger"), attribute.String("reverb.entry_id", entry.ID), attribute.String("reverb.namespace", entry.Namespace))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	data, err := json.Marshal(entry)
@@ -183,7 +207,13 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "badger"), attribute.String("reverb.entry_id", id))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	return s.db.Update(func(txn *badgerdb.Txn) error {
@@ -216,7 +246,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete_batch")
+	defer span.End()
+	span.SetAttributes(attribute.String("reverb.store.backend", "badger"), attribute.Int("reverb.batch_size", len(ids)))
+
 	if err := ctx.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	for _, id := range ids {
