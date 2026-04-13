@@ -161,7 +161,8 @@ reverb/
 ├── cmd/reverb/              # Standalone server binary
 ├── examples/
 │   ├── basic/               # Core workflow: store, lookup, stats, invalidate
-│   └── semantic-cache/      # Full feature demo: namespaces, lineage, two-tier caching
+│   ├── semantic-cache/      # Full feature demo: namespaces, lineage, two-tier caching
+│   └── stale-knowledge/     # Redis + webhook CDC: stale KB prevention
 ├── pkg/
 │   ├── reverb/              # Public API — Client facade, Config
 │   ├── cache/
@@ -225,7 +226,7 @@ All backends are pluggable via interfaces:
 
 ## Examples
 
-The `examples/` directory contains self-contained programs that demonstrate how to integrate reverb into your own project. Each example runs with zero external dependencies (no Redis, no OpenAI key, no Docker required for local runs).
+The `examples/` directory contains self-contained programs that demonstrate how to integrate reverb into your own project. The `basic` and `semantic-cache` examples run with zero external dependencies; `stale-knowledge` requires Redis (provided via Docker Compose).
 
 ### Basic Usage (`examples/basic/`)
 
@@ -264,7 +265,24 @@ go run ./examples/semantic-cache
 docker compose -f examples/semantic-cache/docker-compose.yml up --build
 ```
 
-> **Note on semantic vs. exact hits:** Both examples use `fake.New(64)`, a deterministic hash-based embedder suitable for testing. With this embedder, only identical prompts produce matching vectors, so you will only see `tier=exact` hits. To observe true `tier=semantic` hits (where paraphrases like *"How do I reset my password?"* and *"password reset help"* match), swap in a real embedding provider:
+### Stale Knowledge Prevention (`examples/stale-knowledge/`)
+
+A production-realistic scenario demonstrating reverb's core value proposition: **automatic cache invalidation when source documents change**. Uses Redis for persistent storage and the CDC webhook listener for event-driven invalidation.
+
+- **Redis-backed storage** — persistent cache that survives restarts (exact-match tier)
+- **Webhook-driven CDC** — simulates a CMS/wiki pushing a webhook when a document changes
+- **Lineage-aware invalidation** — only entries derived from the changed document are evicted
+- **Same-hash idempotency** — unchanged content hashes do not trigger false invalidations
+
+```bash
+# Run with Docker Compose (zero host dependencies)
+docker compose -f examples/stale-knowledge/docker-compose.yml up --build
+
+# Or run locally (requires Redis on localhost:6379)
+go run ./examples/stale-knowledge
+```
+
+> **Note on semantic vs. exact hits:** All examples use `fake.New(64)`, a deterministic hash-based embedder suitable for testing. With this embedder, only identical prompts produce matching vectors, so you will only see `tier=exact` hits. To observe true `tier=semantic` hits (where paraphrases like *"How do I reset my password?"* and *"password reset help"* match), swap in a real embedding provider:
 >
 > ```go
 > // Instead of: fake.New(64)
