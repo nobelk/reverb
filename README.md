@@ -415,6 +415,12 @@ metrics:
 | `REVERB_SIMILARITY_THRESHOLD` | `similarity_threshold` | `"0.90"` |
 | `REVERB_EMBEDDING_API_KEY` | `embedding.api_key` | API key string |
 | `REVERB_REDIS_PASSWORD` | `store.redis_password` | Password string |
+| `REVERB_OTEL_ENABLED` | `otel.enabled` | `"true"`, `"1"` |
+| `REVERB_OTEL_ENDPOINT` | `otel.endpoint` | `"localhost:4318"` |
+| `REVERB_OTEL_SERVICE_NAME` | `otel.service_name` | `"reverb"` |
+| `REVERB_OTEL_INSECURE` | `otel.insecure` | `"true"`, `"1"` |
+
+A sample environment file is provided at [`.env.example`](.env.example) — copy it to `.env` and edit as needed.
 
 > **Note:** The `metrics` section is defined in the configuration schema (`pkg/reverb/config.go`) but the metrics HTTP server is not yet started by the standalone binary. The container `Dockerfile` exposes port `9100` in anticipation of this feature.
 
