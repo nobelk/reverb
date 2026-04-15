@@ -16,6 +16,73 @@ func TestHNSWIndexConformance(t *testing.T) {
 	})
 }
 
+// TestHNSW_DimensionValidation verifies that adding a vector with the wrong number of
+// dimensions returns an error and does not corrupt the index.
+func TestHNSW_DimensionValidation(t *testing.T) {
+	// Index configured for 4 dimensions.
+	idx := hnsw.New(hnsw.Config{M: 16, EfConstruction: 200, EfSearch: 100}, 4)
+	ctx := context.Background()
+
+	// Correct dimensions should succeed.
+	err := idx.Add(ctx, "ok", []float32{1, 0, 0, 0})
+	if err != nil {
+		t.Fatalf("Add with correct dims: %v", err)
+	}
+
+	// Wrong dimensions (too few) should fail.
+	err = idx.Add(ctx, "bad-short", []float32{1, 0})
+	if err == nil {
+		t.Fatal("expected error for 2-dim vector in 4-dim index")
+	}
+
+	// Wrong dimensions (too many) should fail.
+	err = idx.Add(ctx, "bad-long", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	if err == nil {
+		t.Fatal("expected error for 8-dim vector in 4-dim index")
+	}
+
+	// Index should only contain the valid vector.
+	if idx.Len() != 1 {
+		t.Errorf("expected 1 vector in index, got %d", idx.Len())
+	}
+
+	// Search should still work correctly.
+	results, err := idx.Search(ctx, []float32{1, 0, 0, 0}, 1, 0.0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "ok" {
+		t.Errorf("unexpected search results: %v", results)
+	}
+}
+
+// TestHNSW_DimensionInferredFromFirstVector verifies that when dims=0, the first
+// vector's length is used for validation of subsequent vectors.
+func TestHNSW_DimensionInferredFromFirstVector(t *testing.T) {
+	idx := hnsw.New(hnsw.Config{}, 0)
+	ctx := context.Background()
+
+	// First add should succeed and lock in dimensions.
+	if err := idx.Add(ctx, "first", []float32{1, 0, 0}); err != nil {
+		t.Fatalf("first Add: %v", err)
+	}
+
+	// Second add with same dims should succeed.
+	if err := idx.Add(ctx, "second", []float32{0, 1, 0}); err != nil {
+		t.Fatalf("second Add: %v", err)
+	}
+
+	// Third add with different dims should fail.
+	err := idx.Add(ctx, "third", []float32{1, 0, 0, 0, 0})
+	if err == nil {
+		t.Fatal("expected error for mismatched dimensions after inference")
+	}
+
+	if idx.Len() != 2 {
+		t.Errorf("expected 2 vectors, got %d", idx.Len())
+	}
+}
+
 // TestHNSW_PruneConnectionsBidirectional verifies that after pruning, all edges remain
 // bidirectional — no dangling one-directional edges are left in the graph.
 func TestHNSW_PruneConnectionsBidirectional(t *testing.T) {

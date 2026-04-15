@@ -44,7 +44,7 @@ func main() {
 		ScopeByModel:        true,
 	}
 
-	client, err := reverb.New(cfg, fake.New(64), memory.New(), flat.New())
+	client, err := reverb.New(cfg, fake.New(64), memory.New(), flat.New(0))
 	if err != nil {
 		log.Fatalf("failed to create reverb client: %v", err)
 	}

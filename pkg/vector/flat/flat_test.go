@@ -10,6 +10,6 @@ import (
 
 func TestFlatIndexConformance(t *testing.T) {
 	conformance.RunVectorIndexConformance(t, func(t *testing.T, dims int) vector.Index {
-		return flat.New()
+		return flat.New(dims)
 	})
 }

@@ -23,7 +23,7 @@ const dims = 64
 func newTestClient(t *testing.T, clock *testutil.FakeClock) (*reverb.Client, *memory.Store) {
 	t.Helper()
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(dims)
 	if clock == nil {
 		clock = testutil.NewFakeClock(time.Now())
@@ -73,7 +73,7 @@ func TestClient_LookupExactHit(t *testing.T) {
 
 func TestClient_LookupSemanticHit(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 
@@ -127,7 +127,7 @@ func TestClient_LookupMiss(t *testing.T) {
 
 func TestClient_Store_WritesToBothTiers(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 
@@ -282,7 +282,7 @@ func TestClient_ModelIDIsolation(t *testing.T) {
 
 func TestClient_EmbeddingFailure_Degradation(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	failingEmbedder := fake.NewFailing(dims, nil)
 	clock := testutil.NewFakeClock(time.Now())
 	cfg := reverb.Config{
@@ -319,7 +319,7 @@ func TestClient_EmbeddingFailure_Degradation(t *testing.T) {
 
 func TestClient_StoreWithEmbeddingFailure(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	failingEmbedder := fake.NewFailing(dims, nil)
 	clock := testutil.NewFakeClock(time.Now())
 	cfg := reverb.Config{
@@ -371,7 +371,7 @@ func TestClient_Close(t *testing.T) {
 
 func TestClient_Store_Upsert(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	cfg := reverb.Config{

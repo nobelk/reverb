@@ -20,7 +20,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	embedder := fake.New(64)
 	store := memory.New()
-	index := flat.New()
+	index := flat.New(0)
 
 	cfg := reverb.Config{
 		DefaultNamespace:    "support",

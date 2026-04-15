@@ -11,7 +11,7 @@
 // (using the fake embedder), because the focus is on source-aware invalidation,
 // not semantic reuse quality.
 //
-// Note: The flat.New() vector index is in-process memory and does not survive
+// Note: The flat.New(0) vector index is in-process memory and does not survive
 // restarts. Exact-match lookups (backed by Redis) do persist across restarts,
 // but semantic search state would be lost. This is acceptable here because the
 // example relies solely on exact-match lookups.
@@ -63,7 +63,7 @@ func main() {
 		ScopeByModel:        true,
 	}
 
-	client, err := reverb.New(cfg, fake.New(64), store, flat.New(),
+	client, err := reverb.New(cfg, fake.New(64), store, flat.New(0),
 		reverb.WithCDCListener(listener),
 	)
 	if err != nil {

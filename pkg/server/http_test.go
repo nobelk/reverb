@@ -21,7 +21,7 @@ import (
 func setupTestServer(t *testing.T) (*server.HTTPServer, *reverb.Client) {
 	t.Helper()
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(64)
 	cfg := reverb.Config{
 		DefaultTTL:          24 * time.Hour,

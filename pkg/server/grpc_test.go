@@ -28,7 +28,7 @@ func setupGRPCServer(t *testing.T) (*server.GRPCServer, *grpc.ClientConn) {
 	t.Helper()
 
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	embedder := fake.New(64)
 	cfg := reverb.Config{
 		DefaultTTL:          24 * time.Hour,

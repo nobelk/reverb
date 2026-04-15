@@ -17,7 +17,7 @@ import (
 
 func TestInvalidator_InvalidateOnHashChange(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 	ctx := context.Background()
@@ -51,7 +51,7 @@ func TestInvalidator_InvalidateOnHashChange(t *testing.T) {
 
 func TestInvalidator_NoInvalidateOnSameHash(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 	ctx := context.Background()
@@ -77,7 +77,7 @@ func TestInvalidator_NoInvalidateOnSameHash(t *testing.T) {
 
 func TestInvalidator_InvalidateOnDeletion(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 	ctx := context.Background()
@@ -102,7 +102,7 @@ func TestInvalidator_InvalidateOnDeletion(t *testing.T) {
 
 func TestInvalidator_BatchAccumulation(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 	ctx := context.Background()
@@ -125,7 +125,7 @@ func TestInvalidator_BatchAccumulation(t *testing.T) {
 
 func TestInvalidator_ConcurrentInvalidation(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 	ctx := context.Background()
@@ -167,7 +167,7 @@ func TestInvalidator_ConcurrentInvalidation(t *testing.T) {
 
 func TestInvalidator_CleanShutdown(t *testing.T) {
 	s := memory.New()
-	vi := flat.New()
+	vi := flat.New(0)
 	idx := lineage.NewIndex(s)
 	inv := lineage.NewInvalidator(s, vi, idx, nil)
 

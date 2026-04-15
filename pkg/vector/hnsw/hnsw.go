@@ -76,6 +76,14 @@ func (idx *Index) Add(_ context.Context, id string, vec []float32) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
+	// Validate vector dimensionality.
+	if idx.dims > 0 && len(vec) != idx.dims {
+		return fmt.Errorf("vector dimension mismatch: index configured for %d dimensions, got %d", idx.dims, len(vec))
+	}
+	if idx.dims == 0 {
+		idx.dims = len(vec)
+	}
+
 	// If the ID already exists, delete it first (overwrite semantics).
 	if _, exists := idx.nodes[id]; exists {
 		idx.deleteNode(id)

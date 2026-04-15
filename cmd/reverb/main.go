@@ -252,7 +252,7 @@ func newVectorIndex(cfg reverb.Config) (vector.Index, error) {
 			EfSearch:       cfg.Vector.HNSWefSearch,
 		}, 0), nil
 	default:
-		return flat.New(), nil
+		return flat.New(0), nil
 	}
 }
 

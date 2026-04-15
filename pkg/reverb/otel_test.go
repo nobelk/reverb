@@ -45,7 +45,7 @@ func newOTelClient(t *testing.T) *reverb.Client {
 		SemanticTopK:        5,
 		ScopeByModel:        true,
 	}
-	client, err := reverb.New(cfg, fake.New(64), memory.New(), flat.New())
+	client, err := reverb.New(cfg, fake.New(64), memory.New(), flat.New(0))
 	require.NoError(t, err)
 	t.Cleanup(func() { client.Close() })
 	return client

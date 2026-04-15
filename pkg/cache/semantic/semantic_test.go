@@ -20,7 +20,7 @@ const dims = 64
 func setupCache(t *testing.T, cfg semantic.Config, clock *testutil.FakeClock) (*semantic.Cache, *memory.Store, *fake.Provider) {
 	t.Helper()
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	if clock == nil {
 		clock = testutil.NewFakeClock(time.Now())
@@ -48,7 +48,7 @@ func storeEntry(t *testing.T, ctx context.Context, s *memory.Store, idx *flat.In
 
 func TestSemantic_ExactVectorMatch(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(embedder, idx, s, semantic.Config{Threshold: 0.95}, clock)
@@ -75,7 +75,7 @@ func TestSemantic_ExactVectorMatch(t *testing.T) {
 
 func TestSemantic_BelowThreshold(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(embedder, idx, s, semantic.Config{Threshold: 0.99}, clock)
@@ -102,7 +102,7 @@ func TestSemantic_BelowThreshold(t *testing.T) {
 
 func TestSemantic_NamespaceFilter(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(embedder, idx, s, semantic.Config{Threshold: 0.5}, clock)
@@ -133,7 +133,7 @@ func TestSemantic_NamespaceFilter(t *testing.T) {
 
 func TestSemantic_ModelFilter(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(embedder, idx, s, semantic.Config{Threshold: 0.5, ScopeByModel: true}, clock)
@@ -164,7 +164,7 @@ func TestSemantic_ModelFilter(t *testing.T) {
 
 func TestSemantic_ExpiredFiltered(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := testutil.NewFakeClock(now)
@@ -198,7 +198,7 @@ func TestSemantic_ExpiredFiltered(t *testing.T) {
 
 func TestSemantic_EmbeddingFailure_GracefulMiss(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	failingEmbedder := fake.NewFailing(dims, nil)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(failingEmbedder, idx, s, semantic.Config{Threshold: 0.5}, clock)
@@ -211,7 +211,7 @@ func TestSemantic_EmbeddingFailure_GracefulMiss(t *testing.T) {
 
 func TestSemantic_TopKRanking(t *testing.T) {
 	s := memory.New()
-	idx := flat.New()
+	idx := flat.New(0)
 	embedder := fake.New(dims)
 	clock := testutil.NewFakeClock(time.Now())
 	c := semantic.New(embedder, idx, s, semantic.Config{Threshold: 0.0, TopK: 3}, clock)

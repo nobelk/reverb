@@ -109,6 +109,44 @@ func RunVectorIndexConformance(t *testing.T, factory func(t *testing.T, dims int
 		assert.Empty(t, results)
 	})
 
+	t.Run("AddRejectsDimensionMismatch", func(t *testing.T) {
+		idx := factory(t, dims)
+		ctx := context.Background()
+		// First add establishes/validates dimensions.
+		vec := randomVector(dims)
+		require.NoError(t, idx.Add(ctx, "v1", vec))
+		// Adding a vector with wrong dimensions must fail.
+		wrongVec := randomVector(dims * 2)
+		err := idx.Add(ctx, "v2", wrongVec)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dimension mismatch")
+		// Original vector should still be searchable (use same vector as query for exact match).
+		results, err := idx.Search(ctx, vec, 1, 0.99)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+	})
+
+	t.Run("AddRejectsDimensionMismatch_Configured", func(t *testing.T) {
+		// Create an index with explicit dimensions and immediately try wrong dims.
+		idx := factory(t, 16)
+		ctx := context.Background()
+		wrongVec := randomVector(8)
+		err := idx.Add(ctx, "v1", wrongVec)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dimension mismatch")
+		assert.Equal(t, 0, idx.Len(), "rejected vector should not be stored")
+	})
+
+	t.Run("AddAcceptsMatchingDimensions", func(t *testing.T) {
+		idx := factory(t, dims)
+		ctx := context.Background()
+		// Multiple adds with correct dimensions should all succeed.
+		for i := 0; i < 5; i++ {
+			require.NoError(t, idx.Add(ctx, fmt.Sprintf("v%d", i), randomVector(dims)))
+		}
+		assert.Equal(t, 5, idx.Len())
+	})
+
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		idx := factory(t, dims)
 		ctx := context.Background()

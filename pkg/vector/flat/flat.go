@@ -2,6 +2,7 @@ package flat
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -13,12 +14,15 @@ import (
 // O(n) search. Suitable for up to ~50K entries. Thread-safe via sync.RWMutex.
 type Index struct {
 	mu      sync.RWMutex
+	dims    int
 	vectors map[string][]float32
 }
 
-// New creates a new flat vector index.
-func New() *Index {
+// New creates a new flat vector index with the given vector dimensionality.
+// If dims is 0, the dimensionality is inferred from the first vector added.
+func New(dims int) *Index {
 	return &Index{
+		dims:    dims,
 		vectors: make(map[string][]float32),
 	}
 }
@@ -26,6 +30,15 @@ func New() *Index {
 func (idx *Index) Add(_ context.Context, id string, vec []float32) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+
+	// Validate vector dimensionality.
+	if idx.dims > 0 && len(vec) != idx.dims {
+		return fmt.Errorf("vector dimension mismatch: index configured for %d dimensions, got %d", idx.dims, len(vec))
+	}
+	if idx.dims == 0 {
+		idx.dims = len(vec)
+	}
+
 	// Store a copy to prevent external mutation
 	v := make([]float32, len(vec))
 	copy(v, vec)
