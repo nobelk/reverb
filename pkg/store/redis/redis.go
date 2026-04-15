@@ -101,9 +101,9 @@ func (s *Store) lineageKey(sourceID string) string {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", id))
+	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
 		span.RecordError(err)
@@ -129,9 +129,9 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.get_by_hash")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get_by_hash")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.namespace", namespace))
+	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.namespace", namespace))
 
 	if err := ctx.Err(); err != nil {
 		span.RecordError(err)
@@ -149,9 +149,9 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.put")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.put")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", entry.ID), attribute.String("reverb.namespace", entry.Namespace))
+	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", entry.ID), attribute.String("gen_ai.cache.namespace", entry.Namespace))
 
 	if err := ctx.Err(); err != nil {
 		span.RecordError(err)
@@ -224,9 +224,9 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.String("reverb.entry_id", id))
+	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
 		span.RecordError(err)
@@ -255,9 +255,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.store.delete_batch")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete_batch")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.store.backend", "redis"), attribute.Int("reverb.batch_size", len(ids)))
+	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.Int("gen_ai.cache.batch_size", len(ids)))
 
 	if err := ctx.Err(); err != nil {
 		span.RecordError(err)

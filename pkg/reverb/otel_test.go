@@ -133,31 +133,36 @@ func TestOTel_Lookup_ExactHit(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	// reverb.lookup span must exist with correct attributes.
-	lookupSpan := findSpan(spans, "reverb.lookup")
-	require.NotNil(t, lookupSpan, "expected reverb.lookup span, got: %v", spanNames(spans))
-	assert.Equal(t, "test-ns", spanAttrStr(lookupSpan, "reverb.namespace"))
+	// gen_ai.cache.lookup span must exist with correct attributes.
+	lookupSpan := findSpan(spans, "gen_ai.cache.lookup")
+	require.NotNil(t, lookupSpan, "expected gen_ai.cache.lookup span, got: %v", spanNames(spans))
+	assert.Equal(t, "test-ns", spanAttrStr(lookupSpan, "gen_ai.cache.namespace"))
+	assert.Equal(t, "reverb", spanAttrStr(lookupSpan, "gen_ai.system"))
+	assert.Equal(t, "lookup", spanAttrStr(lookupSpan, "gen_ai.operation.name"))
+	assert.Equal(t, "gpt-4", spanAttrStr(lookupSpan, "gen_ai.request.model"))
 
-	hit, ok := spanAttrBool(lookupSpan, "reverb.hit")
-	require.True(t, ok, "reverb.hit attribute missing")
+	hit, ok := spanAttrBool(lookupSpan, "gen_ai.cache.hit")
+	require.True(t, ok, "gen_ai.cache.hit attribute missing")
 	assert.True(t, hit)
 
-	sim, ok := spanAttrFloat(lookupSpan, "reverb.similarity")
+	sim, ok := spanAttrFloat(lookupSpan, "gen_ai.cache.similarity")
 	require.True(t, ok)
 	assert.Equal(t, 1.0, sim)
 
-	// reverb.exact.lookup child span must exist.
-	exactSpan := findSpan(spans, "reverb.exact.lookup")
-	require.NotNil(t, exactSpan, "expected reverb.exact.lookup span")
+	assert.Equal(t, "exact", spanAttrStr(lookupSpan, "gen_ai.cache.tier"))
 
-	exactHit, ok := spanAttrBool(exactSpan, "reverb.hit")
+	// gen_ai.cache.exact.lookup child span must exist.
+	exactSpan := findSpan(spans, "gen_ai.cache.exact.lookup")
+	require.NotNil(t, exactSpan, "expected gen_ai.cache.exact.lookup span")
+
+	exactHit, ok := spanAttrBool(exactSpan, "gen_ai.cache.hit")
 	require.True(t, ok)
 	assert.True(t, exactHit)
 
-	// reverb.store.get_by_hash child span (from memory store).
-	hashSpan := findSpan(spans, "reverb.store.get_by_hash")
-	require.NotNil(t, hashSpan, "expected reverb.store.get_by_hash span")
-	assert.Equal(t, "memory", spanAttrStr(hashSpan, "reverb.store.backend"))
+	// gen_ai.cache.store.get_by_hash child span (from memory store).
+	hashSpan := findSpan(spans, "gen_ai.cache.store.get_by_hash")
+	require.NotNil(t, hashSpan, "expected gen_ai.cache.store.get_by_hash span")
+	assert.Equal(t, "memory", spanAttrStr(hashSpan, "gen_ai.cache.store.backend"))
 
 	// No errors on any span.
 	assert.Equal(t, codes.Unset, lookupSpan.Status.Code)
@@ -178,20 +183,22 @@ func TestOTel_Lookup_Miss(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	lookupSpan := findSpan(spans, "reverb.lookup")
+	lookupSpan := findSpan(spans, "gen_ai.cache.lookup")
 	require.NotNil(t, lookupSpan)
 
-	hit, ok := spanAttrBool(lookupSpan, "reverb.hit")
+	hit, ok := spanAttrBool(lookupSpan, "gen_ai.cache.hit")
 	require.True(t, ok)
 	assert.False(t, hit)
 
-	sim, ok := spanAttrFloat(lookupSpan, "reverb.similarity")
+	sim, ok := spanAttrFloat(lookupSpan, "gen_ai.cache.similarity")
 	require.True(t, ok)
 	assert.Equal(t, 0.0, sim)
 
+	assert.Equal(t, "miss", spanAttrStr(lookupSpan, "gen_ai.cache.tier"))
+
 	// Both exact and semantic lookups should have been tried.
-	assert.NotNil(t, findSpan(spans, "reverb.exact.lookup"))
-	assert.NotNil(t, findSpan(spans, "reverb.semantic.lookup"))
+	assert.NotNil(t, findSpan(spans, "gen_ai.cache.exact.lookup"))
+	assert.NotNil(t, findSpan(spans, "gen_ai.cache.semantic.lookup"))
 }
 
 func TestOTel_Store_CreatesSpans(t *testing.T) {
@@ -209,16 +216,18 @@ func TestOTel_Store_CreatesSpans(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	// reverb.store span.
-	storeSpan := findSpan(spans, "reverb.store")
-	require.NotNil(t, storeSpan, "expected reverb.store span, got: %v", spanNames(spans))
-	assert.Equal(t, "test-ns", spanAttrStr(storeSpan, "reverb.namespace"))
+	// gen_ai.cache.store span.
+	storeSpan := findSpan(spans, "gen_ai.cache.store")
+	require.NotNil(t, storeSpan, "expected gen_ai.cache.store span, got: %v", spanNames(spans))
+	assert.Equal(t, "test-ns", spanAttrStr(storeSpan, "gen_ai.cache.namespace"))
+	assert.Equal(t, "reverb", spanAttrStr(storeSpan, "gen_ai.system"))
+	assert.Equal(t, "store", spanAttrStr(storeSpan, "gen_ai.operation.name"))
 	assert.Equal(t, codes.Unset, storeSpan.Status.Code)
 
-	// reverb.store.put child span (from memory store).
-	putSpan := findSpan(spans, "reverb.store.put")
-	require.NotNil(t, putSpan, "expected reverb.store.put span")
-	assert.Equal(t, "memory", spanAttrStr(putSpan, "reverb.store.backend"))
+	// gen_ai.cache.store.put child span (from memory store).
+	putSpan := findSpan(spans, "gen_ai.cache.store.put")
+	require.NotNil(t, putSpan, "expected gen_ai.cache.store.put span")
+	assert.Equal(t, "memory", spanAttrStr(putSpan, "gen_ai.cache.store.backend"))
 }
 
 func TestOTel_Invalidate_CreatesSpans(t *testing.T) {
@@ -243,18 +252,20 @@ func TestOTel_Invalidate_CreatesSpans(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	// reverb.invalidate span.
-	invSpan := findSpan(spans, "reverb.invalidate")
-	require.NotNil(t, invSpan, "expected reverb.invalidate span, got: %v", spanNames(spans))
-	assert.Equal(t, "doc:refund", spanAttrStr(invSpan, "reverb.source_id"))
+	// gen_ai.cache.invalidate span.
+	invSpan := findSpan(spans, "gen_ai.cache.invalidate")
+	require.NotNil(t, invSpan, "expected gen_ai.cache.invalidate span, got: %v", spanNames(spans))
+	assert.Equal(t, "doc:refund", spanAttrStr(invSpan, "gen_ai.cache.source_id"))
+	assert.Equal(t, "reverb", spanAttrStr(invSpan, "gen_ai.system"))
+	assert.Equal(t, "invalidate", spanAttrStr(invSpan, "gen_ai.operation.name"))
 	assert.Equal(t, codes.Unset, invSpan.Status.Code)
 
-	// reverb.lineage.process_event child span.
-	lineageSpan := findSpan(spans, "reverb.lineage.process_event")
-	require.NotNil(t, lineageSpan, "expected reverb.lineage.process_event span")
-	assert.Equal(t, "doc:refund", spanAttrStr(lineageSpan, "reverb.source_id"))
+	// gen_ai.cache.lineage.process_event child span.
+	lineageSpan := findSpan(spans, "gen_ai.cache.lineage.process_event")
+	require.NotNil(t, lineageSpan, "expected gen_ai.cache.lineage.process_event span")
+	assert.Equal(t, "doc:refund", spanAttrStr(lineageSpan, "gen_ai.cache.source_id"))
 
-	invCount, ok := spanAttrInt(lineageSpan, "reverb.invalidated_count")
+	invCount, ok := spanAttrInt(lineageSpan, "gen_ai.cache.invalidated_count")
 	require.True(t, ok)
 	assert.Equal(t, int64(1), invCount)
 }
@@ -278,14 +289,16 @@ func TestOTel_InvalidateEntry_CreatesSpans(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	invSpan := findSpan(spans, "reverb.invalidate_entry")
-	require.NotNil(t, invSpan, "expected reverb.invalidate_entry span, got: %v", spanNames(spans))
-	assert.Equal(t, entryID, spanAttrStr(invSpan, "reverb.entry_id"))
+	invSpan := findSpan(spans, "gen_ai.cache.invalidate_entry")
+	require.NotNil(t, invSpan, "expected gen_ai.cache.invalidate_entry span, got: %v", spanNames(spans))
+	assert.Equal(t, entryID, spanAttrStr(invSpan, "gen_ai.cache.entry_id"))
+	assert.Equal(t, "reverb", spanAttrStr(invSpan, "gen_ai.system"))
+	assert.Equal(t, "invalidate_entry", spanAttrStr(invSpan, "gen_ai.operation.name"))
 	assert.Equal(t, codes.Unset, invSpan.Status.Code)
 
 	// Store delete should be a child span.
-	delSpan := findSpan(spans, "reverb.store.delete")
-	require.NotNil(t, delSpan, "expected reverb.store.delete span")
+	delSpan := findSpan(spans, "gen_ai.cache.store.delete")
+	require.NotNil(t, delSpan, "expected gen_ai.cache.store.delete span")
 }
 
 func TestOTel_SpanHierarchy_LookupExact(t *testing.T) {
@@ -308,8 +321,8 @@ func TestOTel_SpanHierarchy_LookupExact(t *testing.T) {
 	require.NoError(t, err)
 
 	spans := exporter.GetSpans()
-	lookupSpan := findSpan(spans, "reverb.lookup")
-	exactSpan := findSpan(spans, "reverb.exact.lookup")
+	lookupSpan := findSpan(spans, "gen_ai.cache.lookup")
+	exactSpan := findSpan(spans, "gen_ai.cache.exact.lookup")
 	require.NotNil(t, lookupSpan)
 	require.NotNil(t, exactSpan)
 
@@ -335,8 +348,8 @@ func TestOTel_SpanHierarchy_Store(t *testing.T) {
 	require.NoError(t, err)
 
 	spans := exporter.GetSpans()
-	storeSpan := findSpan(spans, "reverb.store")
-	putSpan := findSpan(spans, "reverb.store.put")
+	storeSpan := findSpan(spans, "gen_ai.cache.store")
+	putSpan := findSpan(spans, "gen_ai.cache.store.put")
 	require.NotNil(t, storeSpan)
 	require.NotNil(t, putSpan)
 
@@ -371,15 +384,107 @@ func TestOTel_SemanticLookup_SpanAttributes(t *testing.T) {
 
 	spans := exporter.GetSpans()
 
-	semSpan := findSpan(spans, "reverb.semantic.lookup")
-	require.NotNil(t, semSpan, "expected reverb.semantic.lookup span")
-	assert.Equal(t, "test-ns", spanAttrStr(semSpan, "reverb.namespace"))
+	semSpan := findSpan(spans, "gen_ai.cache.semantic.lookup")
+	require.NotNil(t, semSpan, "expected gen_ai.cache.semantic.lookup span")
+	assert.Equal(t, "test-ns", spanAttrStr(semSpan, "gen_ai.cache.namespace"))
+	assert.Equal(t, "reverb", spanAttrStr(semSpan, "gen_ai.system"))
 
-	topK, ok := spanAttrInt(semSpan, "reverb.top_k")
+	topK, ok := spanAttrInt(semSpan, "gen_ai.cache.top_k")
 	require.True(t, ok)
 	assert.Equal(t, int64(5), topK)
 
-	threshold, ok := spanAttrFloat(semSpan, "reverb.threshold")
+	threshold, ok := spanAttrFloat(semSpan, "gen_ai.cache.threshold")
 	require.True(t, ok)
 	assert.InDelta(t, 0.95, threshold, 0.001)
+}
+
+func TestOTel_GenAI_SystemAttribute_AllSpans(t *testing.T) {
+	exporter := setupOTel(t)
+	client := newOTelClient(t)
+	ctx := context.Background()
+
+	// Store → triggers gen_ai.cache.store + child spans.
+	_, err := client.Store(ctx, reverb.StoreRequest{
+		Prompt:   "system attr test",
+		ModelID:  "gpt-4",
+		Response: "resp",
+		Sources:  []reverb.SourceRef{{SourceID: "doc:sys"}},
+	})
+	require.NoError(t, err)
+
+	// Lookup → triggers gen_ai.cache.lookup + exact + semantic child spans.
+	_, err = client.Lookup(ctx, reverb.LookupRequest{
+		Prompt:  "system attr test",
+		ModelID: "gpt-4",
+	})
+	require.NoError(t, err)
+
+	spans := exporter.GetSpans()
+
+	// Every span whose name starts with "gen_ai." should carry gen_ai.system = "reverb".
+	for _, s := range spans {
+		if len(s.Name) > 7 && s.Name[:7] == "gen_ai." {
+			assert.Equal(t, "reverb", spanAttrStr(&s, "gen_ai.system"),
+				"span %q missing gen_ai.system=reverb", s.Name)
+		}
+	}
+}
+
+func TestOTel_CacheTier_SemanticHit(t *testing.T) {
+	exporter := setupOTel(t)
+
+	// Use a low threshold client to get a semantic hit from the fake embedder.
+	cfg := reverb.Config{
+		DefaultNamespace:    "test-ns",
+		DefaultTTL:          time.Hour,
+		SimilarityThreshold: 0.5,
+		SemanticTopK:        5,
+		ScopeByModel:        true,
+	}
+	client, err := reverb.New(cfg, fake.New(64), memory.New(), flat.New(0))
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	ctx := context.Background()
+
+	// Store an entry.
+	_, err = client.Store(ctx, reverb.StoreRequest{
+		Prompt:   "How do I reset my password?",
+		ModelID:  "gpt-4",
+		Response: "Click forgot password.",
+	})
+	require.NoError(t, err)
+	exporter.Reset()
+
+	// Lookup with a different prompt — exact miss, semantic hit (fake embedder
+	// produces deterministic vectors with high similarity for any input).
+	resp, err := client.Lookup(ctx, reverb.LookupRequest{
+		Prompt:  "password reset instructions",
+		ModelID: "gpt-4",
+	})
+	require.NoError(t, err)
+
+	if resp.Hit && resp.Tier == "semantic" {
+		spans := exporter.GetSpans()
+		lookupSpan := findSpan(spans, "gen_ai.cache.lookup")
+		require.NotNil(t, lookupSpan)
+		assert.Equal(t, "semantic", spanAttrStr(lookupSpan, "gen_ai.cache.tier"))
+	}
+}
+
+func TestOTel_RequestModel_OnLookup(t *testing.T) {
+	exporter := setupOTel(t)
+	client := newOTelClient(t)
+	ctx := context.Background()
+
+	_, err := client.Lookup(ctx, reverb.LookupRequest{
+		Prompt:  "model attr test",
+		ModelID: "claude-3-opus",
+	})
+	require.NoError(t, err)
+
+	spans := exporter.GetSpans()
+	lookupSpan := findSpan(spans, "gen_ai.cache.lookup")
+	require.NotNil(t, lookupSpan)
+	assert.Equal(t, "claude-3-opus", spanAttrStr(lookupSpan, "gen_ai.request.model"))
 }

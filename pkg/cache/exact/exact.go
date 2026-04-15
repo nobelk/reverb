@@ -45,9 +45,12 @@ type LookupResult struct {
 
 // Lookup checks for an exact hash match in the store.
 func (c *Cache) Lookup(ctx context.Context, namespace string, hash [32]byte) (*LookupResult, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.exact.lookup")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.exact.lookup")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.namespace", namespace))
+	span.SetAttributes(
+		attribute.String("gen_ai.system", "reverb"),
+		attribute.String("gen_ai.cache.namespace", namespace),
+	)
 
 	entry, err := c.store.GetByHash(ctx, namespace, hash)
 	if err != nil {
@@ -56,14 +59,14 @@ func (c *Cache) Lookup(ctx context.Context, namespace string, hash [32]byte) (*L
 		return nil, err
 	}
 	if entry == nil {
-		span.SetAttributes(attribute.Bool("reverb.hit", false))
+		span.SetAttributes(attribute.Bool("gen_ai.cache.hit", false))
 		return &LookupResult{Hit: false}, nil
 	}
 	// Check expiry
 	if !entry.ExpiresAt.IsZero() && c.clock.Now().After(entry.ExpiresAt) {
-		span.SetAttributes(attribute.Bool("reverb.hit", false), attribute.Bool("reverb.expired", true))
+		span.SetAttributes(attribute.Bool("gen_ai.cache.hit", false), attribute.Bool("gen_ai.cache.expired", true))
 		return &LookupResult{Hit: false}, nil
 	}
-	span.SetAttributes(attribute.Bool("reverb.hit", true), attribute.String("reverb.entry_id", entry.ID))
+	span.SetAttributes(attribute.Bool("gen_ai.cache.hit", true), attribute.String("gen_ai.cache.entry_id", entry.ID))
 	return &LookupResult{Hit: true, Entry: entry}, nil
 }

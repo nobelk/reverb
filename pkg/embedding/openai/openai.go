@@ -97,12 +97,14 @@ func (p *Provider) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 
 // doEmbed performs the actual API call to the OpenAI embeddings endpoint.
 func (p *Provider) doEmbed(ctx context.Context, texts []string) ([][]float32, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.embed.openai")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.embed.openai")
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("reverb.embedding.provider", "openai"),
-		attribute.String("reverb.embedding.model", p.cfg.Model),
-		attribute.Int("reverb.embedding.input_count", len(texts)),
+		attribute.String("gen_ai.system", "reverb"),
+		attribute.String("gen_ai.operation.name", "embed"),
+		attribute.String("gen_ai.request.embedding.provider", "openai"),
+		attribute.String("gen_ai.request.model", p.cfg.Model),
+		attribute.Int("gen_ai.request.embedding.input_count", len(texts)),
 	)
 
 	reqBody := embeddingRequest{

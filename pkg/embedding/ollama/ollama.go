@@ -81,11 +81,13 @@ func (p *Provider) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 
 // doEmbed performs the actual API call to the Ollama embeddings endpoint.
 func (p *Provider) doEmbed(ctx context.Context, text string) ([]float32, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.embed.ollama")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.embed.ollama")
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("reverb.embedding.provider", "ollama"),
-		attribute.String("reverb.embedding.model", p.model),
+		attribute.String("gen_ai.system", "reverb"),
+		attribute.String("gen_ai.operation.name", "embed"),
+		attribute.String("gen_ai.request.embedding.provider", "ollama"),
+		attribute.String("gen_ai.request.model", p.model),
 	)
 
 	reqBody := embeddingRequest{
@@ -137,6 +139,6 @@ func (p *Provider) doEmbed(ctx context.Context, text string) ([]float32, error) 
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("reverb.embedding.dimensions", len(embResp.Embedding)))
+	span.SetAttributes(attribute.Int("gen_ai.response.embedding.dimensions", len(embResp.Embedding)))
 	return embResp.Embedding, nil
 }

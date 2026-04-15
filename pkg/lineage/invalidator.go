@@ -50,9 +50,12 @@ func NewInvalidator(s store.Store, vi vector.Index, idx *Index, logger *slog.Log
 // ProcessEvent handles a single change event, invalidating affected cache entries.
 // Returns the number of entries invalidated.
 func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (int, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.lineage.process_event")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.lineage.process_event")
 	defer span.End()
-	span.SetAttributes(attribute.String("reverb.source_id", event.SourceID))
+	span.SetAttributes(
+		attribute.String("gen_ai.system", "reverb"),
+		attribute.String("gen_ai.cache.source_id", event.SourceID),
+	)
 
 	entryIDs, err := inv.index.EntriesForSource(ctx, event.SourceID)
 	if err != nil {
@@ -61,7 +64,7 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 		return 0, err
 	}
 
-	span.SetAttributes(attribute.Int("reverb.linked_entries", len(entryIDs)))
+	span.SetAttributes(attribute.Int("gen_ai.cache.linked_entries", len(entryIDs)))
 
 	var toDelete []string
 	isDeleted := event.ContentHash == [32]byte{} // zero hash means source deleted
@@ -93,7 +96,7 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 	}
 
 	if len(toDelete) == 0 {
-		span.SetAttributes(attribute.Int("reverb.invalidated_count", 0))
+		span.SetAttributes(attribute.Int("gen_ai.cache.invalidated_count", 0))
 		return 0, nil
 	}
 
@@ -111,7 +114,7 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 		return 0, err
 	}
 
-	span.SetAttributes(attribute.Int("reverb.invalidated_count", len(toDelete)))
+	span.SetAttributes(attribute.Int("gen_ai.cache.invalidated_count", len(toDelete)))
 	inv.logger.Info("invalidated entries",
 		"source_id", event.SourceID,
 		"count", len(toDelete))

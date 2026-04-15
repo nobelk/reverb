@@ -66,9 +66,9 @@ func TestOTel_Get_CreatesSpan(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "reverb.store.get", spans[0].Name)
-	assert.Equal(t, "memory", spanAttrStr(&spans[0], "reverb.store.backend"))
-	assert.Equal(t, "nonexistent-id", spanAttrStr(&spans[0], "reverb.entry_id"))
+	assert.Equal(t, "gen_ai.cache.store.get", spans[0].Name)
+	assert.Equal(t, "memory", spanAttrStr(&spans[0], "gen_ai.cache.store.backend"))
+	assert.Equal(t, "nonexistent-id", spanAttrStr(&spans[0], "gen_ai.cache.entry_id"))
 	assert.Equal(t, codes.Unset, spans[0].Status.Code)
 }
 
@@ -83,9 +83,9 @@ func TestOTel_GetByHash_CreatesSpan(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "reverb.store.get_by_hash", spans[0].Name)
-	assert.Equal(t, "memory", spanAttrStr(&spans[0], "reverb.store.backend"))
-	assert.Equal(t, "ns1", spanAttrStr(&spans[0], "reverb.namespace"))
+	assert.Equal(t, "gen_ai.cache.store.get_by_hash", spans[0].Name)
+	assert.Equal(t, "memory", spanAttrStr(&spans[0], "gen_ai.cache.store.backend"))
+	assert.Equal(t, "ns1", spanAttrStr(&spans[0], "gen_ai.cache.namespace"))
 }
 
 func TestOTel_Put_CreatesSpan(t *testing.T) {
@@ -103,10 +103,10 @@ func TestOTel_Put_CreatesSpan(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "reverb.store.put", spans[0].Name)
-	assert.Equal(t, "memory", spanAttrStr(&spans[0], "reverb.store.backend"))
-	assert.Equal(t, "entry-1", spanAttrStr(&spans[0], "reverb.entry_id"))
-	assert.Equal(t, "ns1", spanAttrStr(&spans[0], "reverb.namespace"))
+	assert.Equal(t, "gen_ai.cache.store.put", spans[0].Name)
+	assert.Equal(t, "memory", spanAttrStr(&spans[0], "gen_ai.cache.store.backend"))
+	assert.Equal(t, "entry-1", spanAttrStr(&spans[0], "gen_ai.cache.entry_id"))
+	assert.Equal(t, "ns1", spanAttrStr(&spans[0], "gen_ai.cache.namespace"))
 }
 
 func TestOTel_Delete_CreatesSpan(t *testing.T) {
@@ -128,9 +128,9 @@ func TestOTel_Delete_CreatesSpan(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "reverb.store.delete", spans[0].Name)
-	assert.Equal(t, "memory", spanAttrStr(&spans[0], "reverb.store.backend"))
-	assert.Equal(t, "entry-del", spanAttrStr(&spans[0], "reverb.entry_id"))
+	assert.Equal(t, "gen_ai.cache.store.delete", spans[0].Name)
+	assert.Equal(t, "memory", spanAttrStr(&spans[0], "gen_ai.cache.store.backend"))
+	assert.Equal(t, "entry-del", spanAttrStr(&spans[0], "gen_ai.cache.entry_id"))
 }
 
 func TestOTel_DeleteBatch_CreatesSpan(t *testing.T) {
@@ -152,10 +152,10 @@ func TestOTel_DeleteBatch_CreatesSpan(t *testing.T) {
 	require.NoError(t, err)
 
 	spans := exporter.GetSpans()
-	batchSpan := findSpan(spans, "reverb.store.delete_batch")
+	batchSpan := findSpan(spans, "gen_ai.cache.store.delete_batch")
 	require.NotNil(t, batchSpan)
-	assert.Equal(t, "memory", spanAttrStr(batchSpan, "reverb.store.backend"))
-	assert.Equal(t, int64(2), spanAttrInt(batchSpan, "reverb.batch_size"))
+	assert.Equal(t, "memory", spanAttrStr(batchSpan, "gen_ai.cache.store.backend"))
+	assert.Equal(t, int64(2), spanAttrInt(batchSpan, "gen_ai.cache.batch_size"))
 }
 
 func TestOTel_CancelledContext_RecordsError(t *testing.T) {
@@ -170,6 +170,6 @@ func TestOTel_CancelledContext_RecordsError(t *testing.T) {
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "reverb.store.get", spans[0].Name)
+	assert.Equal(t, "gen_ai.cache.store.get", spans[0].Name)
 	assert.Equal(t, codes.Error, spans[0].Status.Code, "cancelled context should set error status")
 }

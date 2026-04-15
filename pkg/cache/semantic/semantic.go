@@ -69,19 +69,20 @@ type LookupResult struct {
 
 // Lookup searches the vector index for semantically similar prompts.
 func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID string) (*LookupResult, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "reverb.semantic.lookup")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.semantic.lookup")
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("reverb.namespace", namespace),
-		attribute.Int("reverb.top_k", c.cfg.TopK),
-		attribute.Float64("reverb.threshold", float64(c.cfg.Threshold)),
+		attribute.String("gen_ai.system", "reverb"),
+		attribute.String("gen_ai.cache.namespace", namespace),
+		attribute.Int("gen_ai.cache.top_k", c.cfg.TopK),
+		attribute.Float64("gen_ai.cache.threshold", float64(c.cfg.Threshold)),
 	)
 
 	// Compute embedding
 	emb, err := c.embedder.Embed(ctx, normalizedPrompt)
 	if err != nil {
 		// Graceful degradation: embedding failure → miss, no error
-		span.SetAttributes(attribute.Bool("reverb.hit", false), attribute.Bool("reverb.embedding_failed", true))
+		span.SetAttributes(attribute.Bool("gen_ai.cache.hit", false), attribute.Bool("gen_ai.cache.embedding_failed", true))
 		return &LookupResult{Hit: false}, nil
 	}
 
@@ -93,7 +94,7 @@ func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("reverb.candidates", len(results)))
+	span.SetAttributes(attribute.Int("gen_ai.cache.candidates", len(results)))
 	now := c.clock.Now()
 
 	// Check each candidate
@@ -120,9 +121,9 @@ func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID
 			continue
 		}
 		span.SetAttributes(
-			attribute.Bool("reverb.hit", true),
-			attribute.Float64("reverb.similarity", float64(res.Score)),
-			attribute.String("reverb.entry_id", entry.ID),
+			attribute.Bool("gen_ai.cache.hit", true),
+			attribute.Float64("gen_ai.cache.similarity", float64(res.Score)),
+			attribute.String("gen_ai.cache.entry_id", entry.ID),
 		)
 		return &LookupResult{
 			Hit:        true,
@@ -131,6 +132,6 @@ func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID
 		}, nil
 	}
 
-	span.SetAttributes(attribute.Bool("reverb.hit", false))
+	span.SetAttributes(attribute.Bool("gen_ai.cache.hit", false))
 	return &LookupResult{Hit: false}, nil
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/nobelk/reverb/internal/hashutil"
 	"github.com/nobelk/reverb/pkg/cache/exact"
@@ -315,6 +316,10 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 	normalized := normalize.Normalize(req.Prompt)
 	modelID := req.ModelID
 
+	if modelID != "" {
+		span.SetAttributes(attribute.String("gen_ai.request.model", modelID))
+	}
+
 	// Tier 1: Exact match
 	hash := hashutil.PromptHash(ns, normalized, modelID)
 	exactResult, err := c.exactTier.Lookup(ctx, ns, hash)
@@ -331,7 +336,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.ExactHits.Add(1)
-		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID)
+		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID, "exact")
 		c.logger.Info("cache hit",
 			"tier", "exact",
 			"namespace", ns,
@@ -359,7 +364,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.SemanticHits.Add(1)
-		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID)
+		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID, "semantic")
 		c.logger.Info("cache hit",
 			"tier", "semantic",
 			"namespace", ns,
@@ -375,7 +380,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 
 	// Miss
 	c.collector.Misses.Add(1)
-	metrics.SetHitAttributes(span, false, 0, "")
+	metrics.SetHitAttributes(span, false, 0, "", "miss")
 	return &LookupResponse{Hit: false}, nil
 }
 

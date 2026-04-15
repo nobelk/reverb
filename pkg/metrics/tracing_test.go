@@ -126,7 +126,7 @@ func TestSetHitAttributes(t *testing.T) {
 
 	_, span := tr.StartLookupSpan(context.Background(), "ns1")
 	// Should not panic with noop span.
-	metrics.SetHitAttributes(span, true, 0.97, "entry-id-456")
+	metrics.SetHitAttributes(span, true, 0.97, "entry-id-456", "exact")
 	span.End()
 }
 
