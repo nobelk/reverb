@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/nobelk/reverb/pkg/auth"
 	"github.com/nobelk/reverb/pkg/embedding/fake"
 	"github.com/nobelk/reverb/pkg/reverb"
 	"github.com/nobelk/reverb/pkg/server"
@@ -30,7 +31,7 @@ func setupTestServer(t *testing.T) (*server.HTTPServer, *reverb.Client) {
 	}
 	client, err := reverb.New(cfg, embedder, s, vi)
 	require.NoError(t, err)
-	srv := server.NewHTTPServer(client, ":0")
+	srv := server.NewHTTPServer(client, ":0", nil)
 	return srv, client
 }
 
@@ -247,6 +248,199 @@ func TestHTTP_NotFound(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// --- auth tests --------------------------------------------------------------
+
+func setupAuthServer(t *testing.T) (*server.HTTPServer, *auth.Authenticator) {
+	t.Helper()
+	s := memory.New()
+	vi := flat.New(0)
+	embedder := fake.New(64)
+	cfg := reverb.Config{
+		DefaultTTL:          24 * time.Hour,
+		SimilarityThreshold: 0.95,
+		SemanticTopK:        5,
+	}
+	client, err := reverb.New(cfg, embedder, s, vi)
+	require.NoError(t, err)
+
+	authn, err := auth.NewAuthenticator(reverb.AuthConfig{
+		Tenants: []reverb.Tenant{
+			{ID: "tenant-a", APIKeys: []string{"key-a"}},
+			{ID: "tenant-b", APIKeys: []string{"key-b"}},
+		},
+	})
+	require.NoError(t, err)
+	srv := server.NewHTTPServer(client, ":0", authn)
+	return srv, authn
+}
+
+func authedPost(t *testing.T, srv http.Handler, path string, apiKey string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	b, err := json.Marshal(body)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestHTTP_Auth_Unauthorized(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	// No token → 401.
+	rec := authedPost(t, srv, "/v1/lookup", "", map[string]any{
+		"namespace": "ns", "prompt": "hello",
+	})
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	// Invalid token → 401.
+	rec = authedPost(t, srv, "/v1/lookup", "bad-key", map[string]any{
+		"namespace": "ns", "prompt": "hello",
+	})
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestHTTP_Auth_HealthzBypassesAuth(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHTTP_Auth_TenantIsolation(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	// Tenant A stores an entry.
+	rec := authedPost(t, srv, "/v1/store", "key-a", map[string]any{
+		"namespace": "shared-ns",
+		"prompt":    "What is Go?",
+		"model_id":  "gpt-4",
+		"response":  "A language by Google.",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Tenant A can look it up.
+	rec = authedPost(t, srv, "/v1/lookup", "key-a", map[string]any{
+		"namespace": "shared-ns",
+		"prompt":    "What is Go?",
+		"model_id":  "gpt-4",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, true, resp["hit"])
+
+	// Tenant B cannot see it — same namespace and prompt, but different tenant.
+	rec = authedPost(t, srv, "/v1/lookup", "key-b", map[string]any{
+		"namespace": "shared-ns",
+		"prompt":    "What is Go?",
+		"model_id":  "gpt-4",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, false, resp["hit"])
+}
+
+func TestHTTP_Auth_DeleteEntry_TenantOwnership(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	// Tenant A stores an entry.
+	rec := authedPost(t, srv, "/v1/store", "key-a", map[string]any{
+		"namespace": "ns",
+		"prompt":    "What is Go?",
+		"model_id":  "gpt-4",
+		"response":  "A language.",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var storeResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	entryID := storeResp["id"].(string)
+
+	// Tenant B tries to delete it → 404 (without revealing existence).
+	req := httptest.NewRequest(http.MethodDelete, "/v1/entries/"+entryID, nil)
+	req.Header.Set("Authorization", "Bearer key-b")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// Entry should still exist for tenant A.
+	rec = authedPost(t, srv, "/v1/lookup", "key-a", map[string]any{
+		"namespace": "ns", "prompt": "What is Go?", "model_id": "gpt-4",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var lookupResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lookupResp))
+	assert.Equal(t, true, lookupResp["hit"])
+
+	// Tenant A can delete it.
+	req = httptest.NewRequest(http.MethodDelete, "/v1/entries/"+entryID, nil)
+	req.Header.Set("Authorization", "Bearer key-a")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestHTTP_Auth_DeleteEntry_NotFound(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/entries/nonexistent-id", nil)
+	req.Header.Set("Authorization", "Bearer key-a")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHTTP_Auth_Stats_TotalEntriesScoped(t *testing.T) {
+	srv, _ := setupAuthServer(t)
+
+	// Tenant A stores 2 entries in different namespaces.
+	for i, p := range []string{"prompt-1", "prompt-2"} {
+		rec := authedPost(t, srv, "/v1/store", "key-a", map[string]any{
+			"namespace": "ns-a",
+			"prompt":    p,
+			"model_id":  "gpt-4",
+			"response":  "resp",
+		})
+		require.Equalf(t, http.StatusCreated, rec.Code, "entry %d", i)
+	}
+	// Tenant B stores 1 entry.
+	rec := authedPost(t, srv, "/v1/store", "key-b", map[string]any{
+		"namespace": "ns-b",
+		"prompt":    "different",
+		"model_id":  "gpt-4",
+		"response":  "resp",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Tenant A's stats should show 2 entries.
+	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer key-a")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var statsA map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statsA))
+	assert.EqualValues(t, 2, statsA["total_entries"])
+	assert.ElementsMatch(t, []any{"ns-a"}, statsA["namespaces"])
+
+	// Tenant B's stats should show 1 entry.
+	req = httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer key-b")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var statsB map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statsB))
+	assert.EqualValues(t, 1, statsB["total_entries"])
+	assert.ElementsMatch(t, []any{"ns-b"}, statsB["namespaces"])
 }
 
 func TestHTTP_ContentType(t *testing.T) {

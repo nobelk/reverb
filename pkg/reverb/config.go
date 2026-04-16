@@ -2,6 +2,7 @@ package reverb
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type Config struct {
 	Vector    VectorConfig    `yaml:"vector"`
 	CDC       CDCConfig       `yaml:"cdc"`
 	Server    ServerConfig    `yaml:"server"`
+	Auth      AuthConfig      `yaml:"auth"`
 	Metrics   MetricsConfig   `yaml:"metrics"`
 	OTel      OTelConfig      `yaml:"otel"`
 
@@ -84,6 +86,19 @@ type MetricsConfig struct {
 	Addr    string `yaml:"addr"`
 }
 
+// AuthConfig holds API key authentication configuration.
+type AuthConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Tenants []Tenant `yaml:"tenants"`
+}
+
+// Tenant maps one or more API keys to a tenant identity.
+type Tenant struct {
+	ID      string   `yaml:"id"`
+	Name    string   `yaml:"name"`
+	APIKeys []string `yaml:"api_keys"`
+}
+
 // OTelConfig holds OpenTelemetry configuration.
 type OTelConfig struct {
 	Enabled     bool   `yaml:"enabled"`
@@ -119,6 +134,31 @@ func (c *Config) Validate() error {
 	}
 	if c.DefaultTTL < 0 {
 		return errors.New("default_ttl must be non-negative")
+	}
+	if c.Auth.Enabled {
+		if len(c.Auth.Tenants) == 0 {
+			return errors.New("auth.tenants must contain at least one tenant when auth is enabled")
+		}
+		seen := make(map[string]bool)
+		ids := make(map[string]bool)
+		for _, t := range c.Auth.Tenants {
+			if t.ID == "" {
+				return errors.New("auth.tenants: tenant id must not be empty")
+			}
+			if ids[t.ID] {
+				return fmt.Errorf("auth.tenants: duplicate tenant id %q", t.ID)
+			}
+			ids[t.ID] = true
+			if len(t.APIKeys) == 0 {
+				return fmt.Errorf("auth.tenants: tenant %q must have at least one api_key", t.ID)
+			}
+			for _, k := range t.APIKeys {
+				if seen[k] {
+					return fmt.Errorf("auth.tenants: duplicate api key in tenant %q", t.ID)
+				}
+				seen[k] = true
+			}
+		}
 	}
 	return nil
 }

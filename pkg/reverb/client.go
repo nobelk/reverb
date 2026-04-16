@@ -510,6 +510,26 @@ func (c *Client) InvalidateEntry(ctx context.Context, entryID string) error {
 	return nil
 }
 
+// GetEntry returns a cache entry by ID, or nil if not found.
+// This is a read-only fetch with no hit-count side effects.
+func (c *Client) GetEntry(ctx context.Context, id string) (*store.CacheEntry, error) {
+	return c.store.Get(ctx, id)
+}
+
+// CountInNamespace returns the number of cache entries currently stored in
+// the given namespace. Iterates the namespace, so cost is O(N).
+func (c *Client) CountInNamespace(ctx context.Context, namespace string) (int64, error) {
+	var count int64
+	err := c.store.Scan(ctx, namespace, func(_ *store.CacheEntry) bool {
+		count++
+		return true
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // Stats returns cache statistics.
 func (c *Client) Stats(ctx context.Context) (*Stats, error) {
 	storeStats, err := c.store.Stats(ctx)

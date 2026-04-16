@@ -18,6 +18,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"gopkg.in/yaml.v3"
 
+	"github.com/nobelk/reverb/pkg/auth"
 	"github.com/nobelk/reverb/pkg/cdc"
 	"github.com/nobelk/reverb/pkg/cdc/nats"
 	"github.com/nobelk/reverb/pkg/cdc/webhook"
@@ -125,6 +126,17 @@ func main() {
 	}
 	defer client.Close()
 
+	var authn *auth.Authenticator
+	if cfg.Auth.Enabled {
+		var err error
+		authn, err = auth.NewAuthenticator(cfg.Auth)
+		if err != nil {
+			logger.Error("failed to create authenticator", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("API key authentication enabled", "tenants", len(cfg.Auth.Tenants))
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -132,7 +144,7 @@ func main() {
 	if addr == "" {
 		addr = ":8080"
 	}
-	srv := server.NewHTTPServer(client, addr)
+	srv := server.NewHTTPServer(client, addr, authn)
 	logger.Info("starting HTTP server", "addr", addr, "store", cfg.Store.Backend, "embedder", cfg.Embedding.Provider)
 
 	errCh := make(chan error, 2)
@@ -142,7 +154,7 @@ func main() {
 
 	// Start gRPC server if configured
 	if cfg.Server.GRPCAddr != "" {
-		grpcSrv := server.NewGRPCServer(client)
+		grpcSrv := server.NewGRPCServer(client, authn)
 		go func() {
 			logger.Info("starting gRPC server", "addr", cfg.Server.GRPCAddr)
 			if err := grpcSrv.Start(ctx, cfg.Server.GRPCAddr); err != nil && ctx.Err() == nil {
@@ -186,6 +198,15 @@ func applyEnvOverrides(cfg *reverb.Config) {
 	}
 	if v := os.Getenv("REVERB_OTEL_INSECURE"); v == "true" || v == "1" {
 		cfg.OTel.Insecure = true
+	}
+	if v := os.Getenv("REVERB_AUTH_ENABLED"); v == "true" || v == "1" {
+		cfg.Auth.Enabled = true
+	}
+	if v := os.Getenv("REVERB_AUTH_API_KEY"); v != "" {
+		cfg.Auth.Enabled = true
+		cfg.Auth.Tenants = append(cfg.Auth.Tenants, reverb.Tenant{
+			ID: "default", Name: "Default", APIKeys: []string{v},
+		})
 	}
 }
 

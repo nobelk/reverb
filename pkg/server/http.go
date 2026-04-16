@@ -13,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/nobelk/reverb/pkg/auth"
 	"github.com/nobelk/reverb/pkg/reverb"
 	"github.com/nobelk/reverb/pkg/store"
 )
@@ -22,24 +23,33 @@ const maxRequestBodySize = 1 << 20
 
 // HTTPServer exposes the Reverb cache over a JSON/REST API.
 type HTTPServer struct {
-	client *reverb.Client
-	mux    *http.ServeMux
-	server *http.Server
-	logger *slog.Logger
+	client  *reverb.Client
+	mux     *http.ServeMux
+	handler http.Handler // mux wrapped in optional auth middleware
+	server  *http.Server
+	logger  *slog.Logger
 }
 
 // NewHTTPServer creates a new HTTPServer wired to the given Reverb client.
-func NewHTTPServer(client *reverb.Client, addr string) *HTTPServer {
+// When authn is non-nil, all endpoints except /healthz require a valid
+// Bearer token in the Authorization header.
+func NewHTTPServer(client *reverb.Client, addr string, authn *auth.Authenticator) *HTTPServer {
 	logger := slog.Default()
 	mux := http.NewServeMux()
 
+	var handler http.Handler = mux
+	if authn != nil {
+		handler = auth.HTTPMiddleware(authn)(mux)
+	}
+
 	s := &HTTPServer{
-		client: client,
-		mux:    mux,
-		logger: logger,
+		client:  client,
+		mux:     mux,
+		handler: handler,
+		logger:  logger,
 		server: &http.Server{
 			Addr:              addr,
-			Handler:           otelhttp.NewHandler(mux, "reverb-http"),
+			Handler:           otelhttp.NewHandler(handler, "reverb-http"),
 			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}
@@ -55,8 +65,9 @@ func NewHTTPServer(client *reverb.Client, addr string) *HTTPServer {
 }
 
 // ServeHTTP implements http.Handler so the server can be used with httptest.
+// This routes through any configured middleware (e.g. auth).
 func (s *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 // ListenAndServe starts the HTTP server. It blocks until the server is shut down.
@@ -185,7 +196,7 @@ func (s *HTTPServer) handleLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.client.Lookup(r.Context(), reverb.LookupRequest{
-		Namespace: req.Namespace,
+		Namespace: auth.ScopedNamespace(r.Context(), req.Namespace),
 		Prompt:    req.Prompt,
 		ModelID:   req.ModelID,
 	})
@@ -239,7 +250,7 @@ func (s *HTTPServer) handleStore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry, err := s.client.Store(r.Context(), reverb.StoreRequest{
-		Namespace:    req.Namespace,
+		Namespace:    auth.ScopedNamespace(r.Context(), req.Namespace),
 		Prompt:       req.Prompt,
 		ModelID:      req.ModelID,
 		Response:     req.Response,
@@ -289,6 +300,23 @@ func (s *HTTPServer) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tenant ownership check: when auth is active, verify the entry's
+	// namespace belongs to the requesting tenant before deleting.
+	if tenant, ok := auth.TenantFromContext(r.Context()); ok {
+		entry, err := s.client.GetEntry(r.Context(), entryID)
+		if err != nil {
+			s.logger.Error("delete entry: get failed", "entry_id", entryID, "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResp{Error: "internal error"})
+			return
+		}
+		// If entry doesn't exist or belongs to another tenant, return 404
+		// without revealing which case it is.
+		if entry == nil || !auth.NamespaceBelongsToTenant(tenant.ID, entry.Namespace) {
+			writeJSON(w, http.StatusNotFound, errorResp{Error: "entry not found"})
+			return
+		}
+	}
+
 	if err := s.client.InvalidateEntry(r.Context(), entryID); err != nil {
 		s.logger.Error("delete entry failed", "entry_id", entryID, "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResp{Error: "internal error"})
@@ -306,9 +334,37 @@ func (s *HTTPServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	namespaces := stats.Namespaces
+	totalEntries := stats.TotalEntries
+	if tenant, ok := auth.TenantFromContext(r.Context()); ok {
+		var (
+			filtered []string
+			scoped   []string // pre-prefix versions to count against the store
+		)
+		for _, ns := range stats.Namespaces {
+			if unscoped, match := auth.UnscopeNamespace(tenant.ID, ns); match {
+				filtered = append(filtered, unscoped)
+				scoped = append(scoped, ns)
+			}
+		}
+		namespaces = filtered
+
+		var tenantTotal int64
+		for _, ns := range scoped {
+			n, err := s.client.CountInNamespace(r.Context(), ns)
+			if err != nil {
+				s.logger.Error("stats: count failed", "namespace", ns, "error", err)
+				writeJSON(w, http.StatusInternalServerError, errorResp{Error: "internal error"})
+				return
+			}
+			tenantTotal += n
+		}
+		totalEntries = tenantTotal
+	}
+
 	writeJSON(w, http.StatusOK, statsResp{
-		TotalEntries:       stats.TotalEntries,
-		Namespaces:         stats.Namespaces,
+		TotalEntries:       totalEntries,
+		Namespaces:         namespaces,
 		ExactHitsTotal:     stats.ExactHitsTotal,
 		SemanticHitsTotal:  stats.SemanticHitsTotal,
 		MissesTotal:        stats.MissesTotal,

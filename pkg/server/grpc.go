@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/nobelk/reverb/pkg/auth"
 	"github.com/nobelk/reverb/pkg/reverb"
 	pb "github.com/nobelk/reverb/pkg/server/proto"
 	"github.com/nobelk/reverb/pkg/store"
@@ -26,8 +27,13 @@ type GRPCServer struct {
 }
 
 // NewGRPCServer creates a new GRPCServer wired to the given Reverb client.
-func NewGRPCServer(client *reverb.Client, opts ...grpc.ServerOption) *GRPCServer {
+// When authn is non-nil, all RPCs require a valid Bearer token in the
+// "authorization" metadata key.
+func NewGRPCServer(client *reverb.Client, authn *auth.Authenticator, opts ...grpc.ServerOption) *GRPCServer {
 	s := &GRPCServer{client: client}
+	if authn != nil {
+		opts = append(opts, grpc.ChainUnaryInterceptor(auth.UnaryServerInterceptor(authn)))
+	}
 	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	s.server = grpc.NewServer(opts...)
 	pb.RegisterReverbServiceServer(s.server, s)
@@ -86,7 +92,7 @@ func (s *GRPCServer) Lookup(ctx context.Context, req *pb.LookupRequest) (*pb.Loo
 	}
 
 	result, err := s.client.Lookup(ctx, reverb.LookupRequest{
-		Namespace: req.GetNamespace(),
+		Namespace: auth.ScopedNamespace(ctx, req.GetNamespace()),
 		Prompt:    req.GetPrompt(),
 		ModelID:   req.GetModelId(),
 	})
@@ -127,7 +133,7 @@ func (s *GRPCServer) Store(ctx context.Context, req *pb.StoreRequest) (*pb.Store
 	}
 
 	entry, err := s.client.Store(ctx, reverb.StoreRequest{
-		Namespace:    req.GetNamespace(),
+		Namespace:    auth.ScopedNamespace(ctx, req.GetNamespace()),
 		Prompt:       req.GetPrompt(),
 		ModelID:      req.GetModelId(),
 		Response:     req.GetResponse(),
@@ -163,6 +169,18 @@ func (s *GRPCServer) DeleteEntry(ctx context.Context, req *pb.DeleteEntryRequest
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
 
+	// Tenant ownership check: when auth is active, verify the entry's
+	// namespace belongs to the requesting tenant before deleting.
+	if tenant, ok := auth.TenantFromContext(ctx); ok {
+		entry, err := s.client.GetEntry(ctx, req.GetId())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "delete entry: get failed: %v", err)
+		}
+		if entry == nil || !auth.NamespaceBelongsToTenant(tenant.ID, entry.Namespace) {
+			return nil, status.Error(codes.NotFound, "entry not found")
+		}
+	}
+
 	if err := s.client.InvalidateEntry(ctx, req.GetId()); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete entry failed: %v", err)
 	}
@@ -176,9 +194,35 @@ func (s *GRPCServer) GetStats(ctx context.Context, _ *pb.GetStatsRequest) (*pb.G
 		return nil, status.Errorf(codes.Internal, "stats failed: %v", err)
 	}
 
+	namespaces := stats.Namespaces
+	totalEntries := stats.TotalEntries
+	if tenant, ok := auth.TenantFromContext(ctx); ok {
+		var (
+			filtered []string
+			scoped   []string
+		)
+		for _, ns := range stats.Namespaces {
+			if unscoped, match := auth.UnscopeNamespace(tenant.ID, ns); match {
+				filtered = append(filtered, unscoped)
+				scoped = append(scoped, ns)
+			}
+		}
+		namespaces = filtered
+
+		var tenantTotal int64
+		for _, ns := range scoped {
+			n, err := s.client.CountInNamespace(ctx, ns)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "stats: count failed: %v", err)
+			}
+			tenantTotal += n
+		}
+		totalEntries = tenantTotal
+	}
+
 	return &pb.GetStatsResponse{
-		TotalEntries:       stats.TotalEntries,
-		Namespaces:         stats.Namespaces,
+		TotalEntries:       totalEntries,
+		Namespaces:         namespaces,
 		ExactHitsTotal:     stats.ExactHitsTotal,
 		SemanticHitsTotal:  stats.SemanticHitsTotal,
 		MissesTotal:        stats.MissesTotal,
