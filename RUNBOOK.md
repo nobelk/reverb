@@ -50,10 +50,11 @@ therefore a single cache state.
 - **Ports:** `8080` (HTTP), `9090` (gRPC).
 - **Auth:** the same `AuthConfig` applies to both transports — bearer token on
   HTTP, API-key metadata on gRPC.
-- **Note:** the gRPC server uses hand-written types, not `protoc`-generated
-  stubs. Clients must either use the Go types in `pkg/server` or implement the
-  wire format from `pkg/server/proto/reverb.proto`. See README §gRPC API for
-  the full caveat.
+- **Wire contract:** the gRPC surface is defined by
+  `pkg/server/proto/reverb.proto` and the server registers against the
+  `protoc`-generated stubs in `pkg/server/proto/` (`reverb.pb.go`,
+  `reverb_grpc.pb.go`). Clients in any language can generate their own stubs
+  from the same `.proto` and interoperate over standard Protocol Buffers.
 
 ### 4. Container / Docker
 

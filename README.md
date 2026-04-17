@@ -1,8 +1,8 @@
 # Reverb
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/intuitai/reverb/ci.yml?branch=main&label=build)](https://github.com/intuitai/reverb/actions)
-[![Coverage](https://img.shields.io/codecov/c/github/intuitai/reverb?label=coverage)](https://codecov.io/gh/intuitai/reverb)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/nobelk/reverb/ci.yml?branch=main&label=build)](https://github.com/nobelk/reverb/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/nobelk/reverb?label=coverage)](https://codecov.io/gh/nobelk/reverb)
 
 **Semantic Response Cache with Knowledge-Aware Invalidation**
 
@@ -140,7 +140,7 @@ curl -X POST http://localhost:8080/v1/invalidate \
 
 ## gRPC API
 
-The `reverb.v1.ReverbService` exposes the same operations over gRPC (see `pkg/server/proto/reverb.proto`):
+The `reverb.v1.ReverbService` exposes the same operations over gRPC. The wire contract is defined in `pkg/server/proto/reverb.proto`, and the Go server and message types are generated via `protoc` into `pkg/server/proto/reverb.pb.go` and `pkg/server/proto/reverb_grpc.pb.go`:
 
 | RPC | Description |
 |---|---|
@@ -150,7 +150,7 @@ The `reverb.v1.ReverbService` exposes the same operations over gRPC (see `pkg/se
 | `DeleteEntry` | Delete a single cache entry |
 | `GetStats` | Cache statistics |
 
-> **Note:** The current gRPC implementation uses hand-written Go request/response types registered via a manual `grpc.ServiceDesc` rather than `protoc`-generated code. The `.proto` file documents the intended wire contract but is not used for code generation. A future release will migrate to generated protobuf types for full client interoperability.
+Clients in any language can generate their own stubs from `reverb.proto`; the Go server registers against the generated `ReverbServiceServer` interface, so the on-the-wire encoding matches standard Protocol Buffers.
 
 ## Architecture
 
