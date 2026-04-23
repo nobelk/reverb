@@ -12,8 +12,10 @@ import (
 func HTTPMiddleware(authn *Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Health check is always public.
-			if r.URL.Path == "/healthz" {
+			// Health, readiness, and metrics are always public so that
+			// load balancers and scrapers can poll them without credentials.
+			switch r.URL.Path {
+			case "/healthz", "/readyz", "/metrics":
 				next.ServeHTTP(w, r)
 				return
 			}

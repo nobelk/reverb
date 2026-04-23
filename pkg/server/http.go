@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/nobelk/reverb/pkg/auth"
@@ -21,19 +23,51 @@ import (
 // maxRequestBodySize limits the size of incoming request bodies to 1MB.
 const maxRequestBodySize = 1 << 20
 
+// ReadinessChecker reports whether the service is ready to serve traffic.
+// A non-nil error indicates a dependency is unhealthy and the service should
+// be removed from load-balancer rotation. The context is scoped to the probe
+// and may carry a short deadline.
+type ReadinessChecker func(ctx context.Context) error
+
 // HTTPServer exposes the Reverb cache over a JSON/REST API.
 type HTTPServer struct {
-	client  *reverb.Client
-	mux     *http.ServeMux
-	handler http.Handler // mux wrapped in optional auth middleware
-	server  *http.Server
-	logger  *slog.Logger
+	client      *reverb.Client
+	mux         *http.ServeMux
+	handler     http.Handler // mux wrapped in optional auth middleware
+	server      *http.Server
+	logger      *slog.Logger
+	readyChecks []ReadinessChecker
+}
+
+// HTTPServerOption configures an HTTPServer at construction time.
+type HTTPServerOption func(*HTTPServer)
+
+// WithMetricsOnMux mounts promhttp on /metrics against the given gatherer.
+// Pass the same registry used to register the PrometheusCollector. Under auth,
+// /metrics is bypassed so Prometheus can scrape without a token — callers who
+// want to gate /metrics should run a dedicated listener instead (see
+// NewMetricsServer).
+func WithMetricsOnMux(gatherer prometheus.Gatherer) HTTPServerOption {
+	return func(s *HTTPServer) {
+		s.mux.Handle("GET /metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
+	}
+}
+
+// WithReadinessCheck registers a probe called on GET /readyz. Multiple checks
+// may be registered; readiness requires all to succeed. Keep checks cheap —
+// the probe runs on every k8s tick.
+func WithReadinessCheck(check ReadinessChecker) HTTPServerOption {
+	return func(s *HTTPServer) {
+		if check != nil {
+			s.readyChecks = append(s.readyChecks, check)
+		}
+	}
 }
 
 // NewHTTPServer creates a new HTTPServer wired to the given Reverb client.
-// When authn is non-nil, all endpoints except /healthz require a valid
-// Bearer token in the Authorization header.
-func NewHTTPServer(client *reverb.Client, addr string, authn *auth.Authenticator) *HTTPServer {
+// When authn is non-nil, all endpoints except /healthz, /readyz, and /metrics
+// require a valid Bearer token in the Authorization header.
+func NewHTTPServer(client *reverb.Client, addr string, authn *auth.Authenticator, opts ...HTTPServerOption) *HTTPServer {
 	logger := slog.Default()
 	mux := http.NewServeMux()
 
@@ -60,6 +94,11 @@ func NewHTTPServer(client *reverb.Client, addr string, authn *auth.Authenticator
 	mux.HandleFunc("DELETE /v1/entries/{id}", s.handleDeleteEntry)
 	mux.HandleFunc("GET /v1/stats", s.handleStats)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
+
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	return s
 }
@@ -170,6 +209,11 @@ type statsResp struct {
 
 type healthResp struct {
 	Status string `json:"status"`
+}
+
+type readyResp struct {
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks,omitempty"`
 }
 
 type errorResp struct {
@@ -375,6 +419,30 @@ func (s *HTTPServer) handleStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, healthResp{Status: "ok"})
+}
+
+// handleReadyz runs every registered ReadinessChecker with a 2s deadline and
+// returns 200 only when all succeed. Failures are reported per-check in the
+// body so operators can see which dependency is the cause.
+func (s *HTTPServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	failed := make(map[string]string)
+	for i, check := range s.readyChecks {
+		if err := check(ctx); err != nil {
+			failed[fmt.Sprintf("check_%d", i)] = err.Error()
+		}
+	}
+
+	if len(failed) > 0 {
+		writeJSON(w, http.StatusServiceUnavailable, readyResp{
+			Status: "not_ready",
+			Checks: failed,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, readyResp{Status: "ready"})
 }
 
 // --- helpers ---------------------------------------------------------------

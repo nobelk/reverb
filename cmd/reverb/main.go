@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -26,6 +28,7 @@ import (
 	"github.com/nobelk/reverb/pkg/embedding/fake"
 	"github.com/nobelk/reverb/pkg/embedding/ollama"
 	"github.com/nobelk/reverb/pkg/embedding/openai"
+	"github.com/nobelk/reverb/pkg/metrics"
 	"github.com/nobelk/reverb/pkg/reverb"
 	"github.com/nobelk/reverb/pkg/server"
 	badgerstore "github.com/nobelk/reverb/pkg/store/badger"
@@ -111,6 +114,19 @@ func main() {
 		logger.Info("vector index rebuild on startup enabled", "store", cfg.Store.Backend)
 	}
 
+	// Build a dedicated Prometheus registry rather than sharing the default
+	// global one. This keeps test isolation predictable and makes it explicit
+	// which metrics we serve.
+	promRegistry := prometheus.NewRegistry()
+	promRegistry.MustRegister(collectors.NewGoCollector())
+	promRegistry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	promCollector, err := metrics.NewPrometheusCollector(promRegistry)
+	if err != nil {
+		logger.Error("failed to register prometheus metrics", "error", err)
+		os.Exit(1)
+	}
+	reverbOpts = append(reverbOpts, reverb.WithPrometheusCollector(promCollector))
+
 	// Start CDC listener if enabled
 	if cfg.CDC.Enabled {
 		listener, err := newCDCListener(cfg)
@@ -149,13 +165,36 @@ func main() {
 	if addr == "" {
 		addr = ":8080"
 	}
-	srv := server.NewHTTPServer(client, addr, authn)
+
+	httpOpts := []server.HTTPServerOption{
+		server.WithReadinessCheck(storeReadiness(s)),
+	}
+	// When no dedicated metrics listener is configured, expose /metrics on the
+	// main HTTP mux. Auth middleware bypasses /metrics so scrapers don't need
+	// credentials — operators wanting a gated endpoint should configure
+	// metrics.addr for a separate listener on an internal-only interface.
+	if cfg.Metrics.Addr == "" {
+		httpOpts = append(httpOpts, server.WithMetricsOnMux(promRegistry))
+	}
+
+	srv := server.NewHTTPServer(client, addr, authn, httpOpts...)
 	logger.Info("starting HTTP server", "addr", addr, "store", cfg.Store.Backend, "embedder", cfg.Embedding.Provider)
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() {
 		errCh <- srv.Start(ctx)
 	}()
+
+	// Start dedicated metrics server if configured.
+	if cfg.Metrics.Addr != "" {
+		metricsSrv := server.NewMetricsServer(cfg.Metrics.Addr, promRegistry)
+		go func() {
+			logger.Info("starting metrics server", "addr", cfg.Metrics.Addr)
+			if err := metricsSrv.Start(ctx); err != nil && ctx.Err() == nil {
+				errCh <- fmt.Errorf("metrics: %w", err)
+			}
+		}()
+	}
 
 	// Start gRPC server if configured
 	if cfg.Server.GRPCAddr != "" {
@@ -171,6 +210,16 @@ func main() {
 	if err := <-errCh; err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// storeReadiness returns a ReadinessChecker that probes the store. A Stats
+// call exercises connectivity for remote backends (redis) and sanity-checks
+// durable ones (badger) without modifying state.
+func storeReadiness(s store.Store) server.ReadinessChecker {
+	return func(ctx context.Context) error {
+		_, err := s.Stats(ctx)
+		return err
 	}
 }
 

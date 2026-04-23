@@ -3,6 +3,7 @@ package reverb
 import (
 	"errors"
 	"fmt"
+	"net"
 	"time"
 )
 
@@ -164,8 +165,62 @@ func (c *Config) Validate() error {
 				seen[k] = true
 			}
 		}
+		if c.Server.HTTPAddr == "" && c.Server.GRPCAddr == "" {
+			return errors.New("auth is enabled but neither server.http_addr nor server.grpc_addr is set — auth would protect nothing")
+		}
+	}
+
+	return c.validateListenAddrs()
+}
+
+// validateListenAddrs parses each non-empty listen address and rejects
+// configurations where two of them would bind the same socket. Two addresses
+// conflict when their ports match and the hosts are equal (or both are
+// wildcard — empty/"0.0.0.0"/"::"). Distinct bound hosts on the same port
+// are permitted; that is a valid Linux multi-interface setup.
+func (c *Config) validateListenAddrs() error {
+	addrs := map[string]string{
+		"server.http_addr": c.Server.HTTPAddr,
+		"server.grpc_addr": c.Server.GRPCAddr,
+		"metrics.addr":     c.Metrics.Addr,
+	}
+
+	parsed := make(map[string]struct{ host, port string })
+	for name, a := range addrs {
+		if a == "" {
+			continue
+		}
+		host, port, err := net.SplitHostPort(a)
+		if err != nil {
+			return fmt.Errorf("%s: invalid address %q: %w", name, a, err)
+		}
+		if port == "" {
+			return fmt.Errorf("%s: address %q must include a port", name, a)
+		}
+		parsed[name] = struct{ host, port string }{host, port}
+	}
+
+	names := make([]string, 0, len(parsed))
+	for n := range parsed {
+		names = append(names, n)
+	}
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			a, b := parsed[names[i]], parsed[names[j]]
+			if a.port != b.port {
+				continue
+			}
+			if isWildcardHost(a.host) || isWildcardHost(b.host) || a.host == b.host {
+				return fmt.Errorf("%s and %s would bind the same socket (%q)",
+					names[i], names[j], addrs[names[i]])
+			}
+		}
 	}
 	return nil
+}
+
+func isWildcardHost(h string) bool {
+	return h == "" || h == "0.0.0.0" || h == "::"
 }
 
 // ApplyDefaults fills in zero-value fields with defaults.

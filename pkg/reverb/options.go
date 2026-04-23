@@ -41,6 +41,16 @@ func WithMetricsCollector(collector *metrics.Collector) Option {
 	}
 }
 
+// WithPrometheusCollector attaches a PrometheusCollector so that Lookup,
+// Store, and Invalidate record counters and duration histograms alongside
+// the internal atomic counters. When nil, no Prometheus recording happens
+// and metric families remain empty on the /metrics endpoint.
+func WithPrometheusCollector(pc *metrics.PrometheusCollector) Option {
+	return func(c *Client) {
+		c.prom = pc
+	}
+}
+
 // WithTracer replaces the default OTel tracer with the provided one.
 func WithTracer(tracer *metrics.Tracer) Option {
 	return func(c *Client) {

@@ -80,6 +80,7 @@ type Client struct {
 	clock        Clock
 	logger       *slog.Logger
 	collector    *metrics.Collector
+	prom         *metrics.PrometheusCollector
 	tracer       *metrics.Tracer
 	cdcListener  cdc.Listener
 
@@ -361,6 +362,11 @@ func (c *Client) metricsUpdater() {
 				"misses", snap.Misses,
 				"hit_rate", snap.HitRate(),
 			)
+			if c.prom != nil {
+				// Aggregate hit rate across all namespaces, labeled "_all".
+				// Per-namespace rate is available via PromQL on reverb_lookups_total{tier}.
+				c.prom.HitRate.WithLabelValues("_all").Set(snap.HitRate())
+			}
 		}
 	}
 }
@@ -374,6 +380,15 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 
 	ctx, span := c.tracer.StartLookupSpan(ctx, ns)
 	defer span.End()
+
+	start := c.clock.Now()
+	tier := "miss"
+	defer func() {
+		if c.prom != nil {
+			c.prom.LookupsTotal.WithLabelValues(ns, tier).Inc()
+			c.prom.LookupDurationSeconds.WithLabelValues(ns, tier).Observe(c.clock.Now().Sub(start).Seconds())
+		}
+	}()
 
 	normalized := normalize.Normalize(req.Prompt)
 	modelID := req.ModelID
@@ -398,6 +413,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.ExactHits.Add(1)
+		tier = "exact"
 		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID, "exact")
 		c.logger.Info("cache hit",
 			"tier", "exact",
@@ -426,6 +442,7 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.SemanticHits.Add(1)
+		tier = "semantic"
 		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID, "semantic")
 		c.logger.Info("cache hit",
 			"tier", "semantic",
@@ -456,6 +473,14 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 	ctx, span := c.tracer.StartStoreSpan(ctx, ns)
 	defer span.End()
 
+	start := c.clock.Now()
+	defer func() {
+		if c.prom != nil {
+			c.prom.StoresTotal.WithLabelValues(ns).Inc()
+			c.prom.StoreDurationSeconds.WithLabelValues(ns).Observe(c.clock.Now().Sub(start).Seconds())
+		}
+	}()
+
 	normalized := normalize.Normalize(req.Prompt)
 	hash := hashutil.PromptHash(ns, normalized, req.ModelID)
 
@@ -479,6 +504,9 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 			"error", err)
 		embeddingMissing = true
 		c.collector.EmbeddingErrors.Add(1)
+		if c.prom != nil {
+			c.prom.EmbeddingErrorsTotal.WithLabelValues(c.cfg.Embedding.Provider).Inc()
+		}
 	} else {
 		emb = embResult
 	}
@@ -553,6 +581,9 @@ func (c *Client) Invalidate(ctx context.Context, sourceID string) (int, error) {
 		return 0, err
 	}
 	c.collector.Invalidations.Add(int64(count))
+	if c.prom != nil {
+		c.prom.InvalidationsTotal.WithLabelValues("", sourceID).Add(float64(count))
+	}
 	return count, nil
 }
 
