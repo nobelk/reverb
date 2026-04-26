@@ -6,24 +6,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-
+	"github.com/nobelk/reverb/pkg/metrics"
 	"github.com/nobelk/reverb/pkg/store"
 )
-
-const tracerName = "github.com/nobelk/reverb/pkg/store/memory"
 
 // Store is an in-memory store. All maps are protected by a single RWMutex
 // for simplicity and correctness.
 type Store struct {
 	mu       sync.RWMutex
-	entries  map[string]*store.CacheEntry          // by ID
-	byHash   map[string]*store.CacheEntry          // namespace:hash → entry
-	lineage  map[string]map[string]struct{}         // sourceID → set of entryIDs
-	hitCount map[string]*atomic.Int64               // entryID → hit count (lock-free)
-	hitTime  map[string]*atomic.Int64               // entryID → last hit unix nano
+	entries  map[string]*store.CacheEntry   // by ID
+	byHash   map[string]*store.CacheEntry   // namespace:hash → entry
+	lineage  map[string]map[string]struct{} // sourceID → set of entryIDs
+	hitCount map[string]*atomic.Int64       // entryID → hit count (lock-free)
+	hitTime  map[string]*atomic.Int64       // entryID → last hit unix nano
+	tracer   *metrics.StoreTracer
 }
 
 // New creates a new in-memory store.
@@ -34,6 +30,7 @@ func New() *Store {
 		lineage:  make(map[string]map[string]struct{}),
 		hitCount: make(map[string]*atomic.Int64),
 		hitTime:  make(map[string]*atomic.Int64),
+		tracer:   metrics.NewStoreTracer("memory"),
 	}
 }
 
@@ -42,13 +39,11 @@ func hashKey(namespace string, hash [32]byte) string {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get")
+	ctx, span := s.tracer.StartGet(ctx, id)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "memory"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	s.mu.RLock()
@@ -74,13 +69,11 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get_by_hash")
+	ctx, span := s.tracer.StartGetByHash(ctx, namespace)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "memory"), attribute.String("gen_ai.cache.namespace", namespace))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	key := hashKey(namespace, hash)
@@ -107,13 +100,11 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.put")
+	ctx, span := s.tracer.StartPut(ctx, entry.ID, entry.Namespace)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "memory"), attribute.String("gen_ai.cache.entry_id", entry.ID), attribute.String("gen_ai.cache.namespace", entry.Namespace))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 
@@ -149,13 +140,11 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete")
+	ctx, span := s.tracer.StartDelete(ctx, id)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "memory"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 	s.mu.Lock()
@@ -177,13 +166,11 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete_batch")
+	ctx, span := s.tracer.StartDeleteBatch(ctx, len(ids))
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "memory"), attribute.Int("gen_ai.cache.batch_size", len(ids)))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 	s.mu.Lock()

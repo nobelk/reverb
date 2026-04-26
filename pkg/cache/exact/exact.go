@@ -2,39 +2,30 @@ package exact
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
+	"github.com/nobelk/reverb/internal/clock"
+	"github.com/nobelk/reverb/pkg/metrics"
 	"github.com/nobelk/reverb/pkg/store"
 )
 
 const tracerName = "github.com/nobelk/reverb/pkg/cache/exact"
 
-// Clock abstracts time for testability.
-type Clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
 // Cache implements the exact-match (Tier 1) cache.
 // It looks up entries by SHA-256 hash of (namespace + normalized_prompt + model_id).
 type Cache struct {
 	store store.Store
-	clock Clock
+	clock clock.Clock
 }
 
 // New creates a new exact-match cache.
-func New(s store.Store, clock Clock) *Cache {
-	if clock == nil {
-		clock = realClock{}
+func New(s store.Store, clk clock.Clock) *Cache {
+	if clk == nil {
+		clk = clock.Real()
 	}
-	return &Cache{store: s, clock: clock}
+	return &Cache{store: s, clock: clk}
 }
 
 // LookupResult holds the result of an exact-match cache lookup.
@@ -54,8 +45,7 @@ func (c *Cache) Lookup(ctx context.Context, namespace string, hash [32]byte) (*L
 
 	entry, err := c.store.GetByHash(ctx, namespace, hash)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	if entry == nil {

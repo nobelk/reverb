@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/nobelk/reverb/internal/hashutil"
+	"github.com/nobelk/reverb/pkg/cache"
 	"github.com/nobelk/reverb/pkg/cache/exact"
 	"github.com/nobelk/reverb/pkg/cache/semantic"
 	"github.com/nobelk/reverb/pkg/cdc"
@@ -39,7 +40,7 @@ type LookupRequest struct {
 // LookupResponse holds the result of a cache lookup.
 type LookupResponse struct {
 	Hit        bool
-	Tier       string  // "exact" | "semantic" | ""
+	Tier       string  // cache.TierExact | cache.TierSemantic | ""
 	Similarity float32 // 1.0 for exact, 0.0–1.0 for semantic
 	Entry      *CacheEntry
 }
@@ -180,6 +181,22 @@ func New(cfg Config, embedder embedding.Provider, s store.Store, vi vector.Index
 	return c, nil
 }
 
+// processChange runs a single CDC event through the invalidator and records the
+// outcome on the metric collector. Errors are logged but not propagated — the
+// invalidation loop is best-effort.
+func (c *Client) processChange(ev cdc.ChangeEvent) {
+	n, err := c.invalidator.ProcessEvent(c.ctx, lineage.ChangeEvent{
+		SourceID:    ev.SourceID,
+		ContentHash: ev.ContentHash,
+		Timestamp:   ev.Timestamp,
+	})
+	if err != nil {
+		c.logger.Error("invalidation failed", "source_id", ev.SourceID, "error", err)
+		return
+	}
+	c.collector.Invalidations.Add(int64(n))
+}
+
 // invalidationLoop reads CDC change events from ch and processes them in batches.
 // It accumulates up to 100 events or 500 ms before flushing.
 func (c *Client) invalidationLoop(ch <-chan cdc.ChangeEvent) {
@@ -195,17 +212,7 @@ func (c *Client) invalidationLoop(ch <-chan cdc.ChangeEvent) {
 
 	flush := func() {
 		for _, ev := range pending {
-			lineageEv := lineage.ChangeEvent{
-				SourceID:    ev.SourceID,
-				ContentHash: ev.ContentHash,
-				Timestamp:   ev.Timestamp,
-			}
-			n, err := c.invalidator.ProcessEvent(c.ctx, lineageEv)
-			if err != nil {
-				c.logger.Error("invalidation failed", "source_id", ev.SourceID, "error", err)
-				continue
-			}
-			c.collector.Invalidations.Add(int64(n))
+			c.processChange(ev)
 		}
 		pending = pending[:0]
 	}
@@ -213,11 +220,12 @@ func (c *Client) invalidationLoop(ch <-chan cdc.ChangeEvent) {
 	for {
 		select {
 		case <-c.ctx.Done():
-			// Drain remaining events.
+			// Best-effort drain of anything already buffered in ch, then flush.
 			for {
 				select {
 				case ev, ok := <-ch:
 					if !ok {
+						flush()
 						return
 					}
 					pending = append(pending, ev)
@@ -413,15 +421,15 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.ExactHits.Add(1)
-		tier = "exact"
-		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID, "exact")
+		tier = cache.TierExact
+		metrics.SetHitAttributes(span, true, 1.0, exactResult.Entry.ID, cache.TierExact)
 		c.logger.Info("cache hit",
-			"tier", "exact",
+			"tier", cache.TierExact,
 			"namespace", ns,
 			"entry_id", exactResult.Entry.ID)
 		return &LookupResponse{
 			Hit:        true,
-			Tier:       "exact",
+			Tier:       cache.TierExact,
 			Similarity: 1.0,
 			Entry:      exactResult.Entry,
 		}, nil
@@ -442,16 +450,16 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 			}()
 		}
 		c.collector.SemanticHits.Add(1)
-		tier = "semantic"
-		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID, "semantic")
+		tier = cache.TierSemantic
+		metrics.SetHitAttributes(span, true, float64(semanticResult.Similarity), semanticResult.Entry.ID, cache.TierSemantic)
 		c.logger.Info("cache hit",
-			"tier", "semantic",
+			"tier", cache.TierSemantic,
 			"namespace", ns,
 			"similarity", semanticResult.Similarity,
 			"entry_id", semanticResult.Entry.ID)
 		return &LookupResponse{
 			Hit:        true,
-			Tier:       "semantic",
+			Tier:       cache.TierSemantic,
 			Similarity: semanticResult.Similarity,
 			Entry:      semanticResult.Entry,
 		}, nil

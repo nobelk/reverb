@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/nobelk/reverb/internal/clock"
 )
 
-// Clock abstracts time for testability.
-type Clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
+// Clock abstracts time for testability. It is an alias of internal/clock.Clock
+// so all backends share one interface; the public name is preserved for
+// callers that already depend on reverb.Clock.
+type Clock = clock.Clock
 
 // Config holds Reverb configuration.
 type Config struct {
@@ -290,6 +288,6 @@ func (c *Config) ApplyDefaults() {
 		c.Vector.Backend = "flat"
 	}
 	if c.Clock == nil {
-		c.Clock = realClock{}
+		c.Clock = clock.Real()
 	}
 }

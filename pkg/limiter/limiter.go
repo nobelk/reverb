@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/nobelk/reverb/internal/clock"
 )
 
 // ErrOverloaded is returned by ConcurrencyLimiter.Acquire when the in-flight
@@ -25,16 +27,6 @@ var ErrOverloaded = errors.New("limiter: overloaded")
 // single-tenant deployment without enabling full auth.
 const AnonymousTenant = "_anonymous"
 
-// Clock abstracts time so the token bucket can be exercised deterministically
-// in tests via testutil.FakeClock.
-type Clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
 // TokenBucket is a single-tenant token-bucket rate limiter. Tokens accrue at
 // `rate` per second up to `burst`; each Allow() call consumes one token. The
 // bucket is safe for concurrent use.
@@ -44,22 +36,22 @@ type TokenBucket struct {
 	lastRefill time.Time
 	rate       float64 // tokens per second
 	burst      float64 // bucket capacity
-	clock      Clock
+	clock      clock.Clock
 }
 
 // NewTokenBucket constructs a bucket starting full (i.e. `burst` tokens
 // available). A non-positive rate disables the bucket entirely — every Allow()
 // will return false. A non-positive burst disables it the same way.
-func NewTokenBucket(rate float64, burst int, clock Clock) *TokenBucket {
-	if clock == nil {
-		clock = realClock{}
+func NewTokenBucket(rate float64, burst int, clk clock.Clock) *TokenBucket {
+	if clk == nil {
+		clk = clock.Real()
 	}
 	return &TokenBucket{
 		tokens:     float64(burst),
 		burst:      float64(burst),
 		rate:       rate,
-		lastRefill: clock.Now(),
-		clock:      clock,
+		lastRefill: clk.Now(),
+		clock:      clk,
 	}
 }
 
@@ -121,24 +113,24 @@ type Registry struct {
 	buckets map[string]*TokenBucket
 	rate    float64
 	burst   int
-	clock   Clock
+	clock   clock.Clock
 }
 
 // NewRegistry creates a registry that hands out per-tenant token buckets at
 // the given rate and burst. Returns nil when rate <= 0 or burst <= 0; callers
 // should treat a nil registry as "rate limiting disabled" and skip Allow().
-func NewRegistry(rate float64, burst int, clock Clock) *Registry {
+func NewRegistry(rate float64, burst int, clk clock.Clock) *Registry {
 	if rate <= 0 || burst <= 0 {
 		return nil
 	}
-	if clock == nil {
-		clock = realClock{}
+	if clk == nil {
+		clk = clock.Real()
 	}
 	return &Registry{
 		buckets: make(map[string]*TokenBucket),
 		rate:    rate,
 		burst:   burst,
-		clock:   clock,
+		clock:   clk,
 	}
 }
 

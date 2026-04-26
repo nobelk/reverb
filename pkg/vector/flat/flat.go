@@ -1,10 +1,10 @@
 package flat
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"math"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/nobelk/reverb/pkg/vector"
@@ -61,20 +61,17 @@ func (idx *Index) Search(_ context.Context, query []float32, k int, minScore flo
 
 	var candidates []scored
 	for id, vec := range idx.vectors {
-		score := cosineSimilarity(query, vec)
+		score := vector.CosineSimilarity(query, vec)
 		if score >= minScore {
 			candidates = append(candidates, scored{id: id, score: score})
 		}
 	}
 
-	// Sort descending by score
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
+	slices.SortFunc(candidates, func(a, b scored) int {
+		return cmp.Compare(b.score, a.score) // descending
 	})
 
-	if len(candidates) > k {
-		candidates = candidates[:k]
-	}
+	candidates = candidates[:min(len(candidates), k)]
 
 	results := make([]vector.SearchResult, len(candidates))
 	for i, c := range candidates {
@@ -96,20 +93,3 @@ func (idx *Index) Len() int {
 	return len(idx.vectors)
 }
 
-// cosineSimilarity computes the cosine similarity between two vectors.
-func cosineSimilarity(a, b []float32) float32 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	denom := math.Sqrt(normA) * math.Sqrt(normB)
-	if denom == 0 {
-		return 0
-	}
-	return float32(dot / denom)
-}

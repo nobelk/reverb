@@ -142,7 +142,14 @@ func (l *Listener) handler(events chan<- cdc.ChangeEvent) http.HandlerFunc {
 			event.Timestamp = time.Now().UTC()
 		}
 
-		events <- event
+		// If the request context is cancelled (e.g. server shutdown) and the
+		// channel has no readers ready, return 503 instead of blocking forever.
+		select {
+		case events <- event:
+		case <-r.Context().Done():
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"accepted"}`))

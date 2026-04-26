@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"math"
 )
@@ -68,11 +69,7 @@ func NewFailing(dims int, err error) *FailingProvider {
 	return &FailingProvider{Err: err, dims: dims}
 }
 
-var ErrFakeEmbeddingFailure = errFakeEmbeddingFailure{}
-
-type errFakeEmbeddingFailure struct{}
-
-func (errFakeEmbeddingFailure) Error() string { return "fake embedding failure" }
+var ErrFakeEmbeddingFailure = errors.New("fake embedding failure")
 
 func (p *FailingProvider) Embed(_ context.Context, _ string) ([]float32, error) {
 	return nil, p.Err

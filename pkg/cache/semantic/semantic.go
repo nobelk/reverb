@@ -2,27 +2,18 @@ package semantic
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
+	"github.com/nobelk/reverb/internal/clock"
 	"github.com/nobelk/reverb/pkg/embedding"
+	"github.com/nobelk/reverb/pkg/metrics"
 	"github.com/nobelk/reverb/pkg/store"
 	"github.com/nobelk/reverb/pkg/vector"
 )
 
 const tracerName = "github.com/nobelk/reverb/pkg/cache/semantic"
-
-// Clock abstracts time for testability.
-type Clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
 
 // Config holds semantic cache configuration.
 type Config struct {
@@ -37,13 +28,13 @@ type Cache struct {
 	index    vector.Index
 	store    store.Store
 	cfg      Config
-	clock    Clock
+	clock    clock.Clock
 }
 
 // New creates a new semantic cache.
-func New(embedder embedding.Provider, idx vector.Index, s store.Store, cfg Config, clock Clock) *Cache {
-	if clock == nil {
-		clock = realClock{}
+func New(embedder embedding.Provider, idx vector.Index, s store.Store, cfg Config, clk clock.Clock) *Cache {
+	if clk == nil {
+		clk = clock.Real()
 	}
 	if cfg.Threshold == 0 {
 		cfg.Threshold = 0.95
@@ -56,7 +47,7 @@ func New(embedder embedding.Provider, idx vector.Index, s store.Store, cfg Confi
 		index:    idx,
 		store:    s,
 		cfg:      cfg,
-		clock:    clock,
+		clock:    clk,
 	}
 }
 
@@ -89,8 +80,7 @@ func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID
 	// Search the vector index
 	results, err := c.index.Search(ctx, emb, c.cfg.TopK, c.cfg.Threshold)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 
@@ -101,8 +91,7 @@ func (c *Cache) Lookup(ctx context.Context, namespace, normalizedPrompt, modelID
 	for _, res := range results {
 		entry, err := c.store.Get(ctx, res.ID)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			metrics.RecordError(span, err)
 			return nil, err
 		}
 		if entry == nil {

@@ -2,7 +2,7 @@ package retry
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 )
 
@@ -44,10 +44,7 @@ func Do(ctx context.Context, cfg Config, fn func(ctx context.Context) error) err
 			return ctx.Err()
 		case <-time.After(actualDelay):
 		}
-		delay *= 2
-		if delay > cfg.MaxDelay {
-			delay = cfg.MaxDelay
-		}
+		delay = min(delay*2, cfg.MaxDelay)
 	}
 	return err
 }

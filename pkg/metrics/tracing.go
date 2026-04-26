@@ -97,44 +97,66 @@ func (t *Tracer) StartVectorSearchSpan(ctx context.Context, namespace string, to
 	return ctx, span
 }
 
-// StartStoreGetSpan starts a child span for a store Get operation.
-func (t *Tracer) StartStoreGetSpan(ctx context.Context, entryID string) (context.Context, trace.Span) {
+// StoreTracer wraps a Tracer with a fixed backend label
+// ("memory" | "redis" | "badger") so store implementations can attach
+// gen_ai.cache.store.backend uniformly without repeating boilerplate.
+type StoreTracer struct {
+	tracer  trace.Tracer
+	backend attribute.KeyValue
+}
+
+// NewStoreTracer constructs a StoreTracer for the given backend label using
+// the global OTel tracer provider.
+func NewStoreTracer(backend string) *StoreTracer {
+	return &StoreTracer{
+		tracer:  otel.Tracer(tracerName),
+		backend: attribute.String("gen_ai.cache.store.backend", backend),
+	}
+}
+
+// NewStoreTracerWithProvider constructs a StoreTracer using the supplied
+// provider. Intended for tests that need an injected tracer provider.
+func NewStoreTracerWithProvider(tp trace.TracerProvider, backend string) *StoreTracer {
+	return &StoreTracer{
+		tracer:  tp.Tracer(tracerName),
+		backend: attribute.String("gen_ai.cache.store.backend", backend),
+	}
+}
+
+// StartGet starts a span for a store Get operation.
+func (t *StoreTracer) StartGet(ctx context.Context, entryID string) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "gen_ai.cache.store.get")
-	span.SetAttributes(
-		attrSystem,
-		attribute.String("gen_ai.cache.entry_id", entryID),
-	)
+	span.SetAttributes(attrSystem, t.backend, attribute.String("gen_ai.cache.entry_id", entryID))
 	return ctx, span
 }
 
-// StartStorePutSpan starts a child span for a store Put operation.
-func (t *Tracer) StartStorePutSpan(ctx context.Context, entryID, namespace string) (context.Context, trace.Span) {
+// StartGetByHash starts a span for a store GetByHash operation.
+func (t *StoreTracer) StartGetByHash(ctx context.Context, namespace string) (context.Context, trace.Span) {
+	ctx, span := t.tracer.Start(ctx, "gen_ai.cache.store.get_by_hash")
+	span.SetAttributes(attrSystem, t.backend, attribute.String("gen_ai.cache.namespace", namespace))
+	return ctx, span
+}
+
+// StartPut starts a span for a store Put operation.
+func (t *StoreTracer) StartPut(ctx context.Context, entryID, namespace string) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "gen_ai.cache.store.put")
-	span.SetAttributes(
-		attrSystem,
+	span.SetAttributes(attrSystem, t.backend,
 		attribute.String("gen_ai.cache.entry_id", entryID),
-		attribute.String("gen_ai.cache.namespace", namespace),
-	)
+		attribute.String("gen_ai.cache.namespace", namespace))
 	return ctx, span
 }
 
-// StartStoreDeleteSpan starts a child span for a store Delete operation.
-func (t *Tracer) StartStoreDeleteSpan(ctx context.Context, entryID string) (context.Context, trace.Span) {
+// StartDelete starts a span for a store Delete operation.
+func (t *StoreTracer) StartDelete(ctx context.Context, entryID string) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "gen_ai.cache.store.delete")
-	span.SetAttributes(
-		attrSystem,
-		attribute.String("gen_ai.cache.entry_id", entryID),
-	)
+	span.SetAttributes(attrSystem, t.backend, attribute.String("gen_ai.cache.entry_id", entryID))
 	return ctx, span
 }
 
-// StartStoreDeleteBatchSpan starts a child span for a store DeleteBatch operation.
-func (t *Tracer) StartStoreDeleteBatchSpan(ctx context.Context, count int) (context.Context, trace.Span) {
+// StartDeleteBatch starts a span for a store DeleteBatch operation.
+func (t *StoreTracer) StartDeleteBatch(ctx context.Context, count int) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, "gen_ai.cache.store.delete_batch")
-	span.SetAttributes(
-		attrSystem,
-		attribute.Int("gen_ai.cache.batch_size", count),
-	)
+	span.SetAttributes(attrSystem, t.backend, attribute.Int("gen_ai.cache.batch_size", count))
 	return ctx, span
 }
 

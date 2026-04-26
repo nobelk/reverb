@@ -37,6 +37,59 @@ Section conventions:
 - Restart test suite at `pkg/reverb/restart_test.go` covering the cold-index
   default path, eager-rebuild reconciliation, skip behavior for expired and
   embedding-missing entries, and the full Badger restart cycle.
+- `internal/clock` — single shared `Clock` interface and `Real()` constructor,
+  replacing four byte-identical declarations across `pkg/reverb`,
+  `pkg/cache/exact`, `pkg/cache/semantic`, and `pkg/limiter`.
+- `pkg/vector.CosineSimilarity` — single canonical implementation, replacing
+  duplicate copies in `pkg/vector/flat` and `pkg/vector/hnsw`.
+- `metrics.StoreTracer` and `metrics.NewStoreTracer(backend)` for store
+  implementations to attach `gen_ai.cache.store.backend` and per-op span
+  attributes uniformly. Span names and attribute shapes are unchanged.
+
+### Changed
+
+- HNSW search hot path no longer recomputes cosine similarity during the
+  final sort: `searchLayer` now returns `[]scoredNode` so the score computed
+  inside the heap is reused. Eliminates O(n log n) cosine calls per
+  `Index.Search`.
+- Webhook listener (`pkg/cdc/webhook`) now selects on `r.Context().Done()`
+  when sending to the events channel, returning HTTP 503 if the request is
+  cancelled (e.g. during shutdown) instead of blocking the handler.
+- Modernized to current Go idioms: `interface{}` → `any`, `sort.Slice` →
+  `slices.SortFunc(cmp.Compare(...))`, manual min/max → `min`/`max` builtins,
+  `math/rand` → `math/rand/v2` (HNSW now uses `rand.NewPCG`).
+- `pkg/reverb/client.go` invalidation loop refactored: extracted
+  `processChange`, simplified the shutdown-drain branch, and ensured pending
+  events are flushed if the CDC channel closes during drain.
+- Store implementations (memory, redis, badger) now route OTel span
+  bookkeeping through `metrics.StoreTracer` and `metrics.RecordError`
+  instead of inline `otel.Tracer(...).Start(...)` and
+  `span.RecordError(err); span.SetStatus(...)` boilerplate.
+
+### Removed
+
+- `pkg/cache/exact.Clock`, `pkg/cache/semantic.Clock`, `pkg/limiter.Clock`,
+  and their `realClock` types. Use `internal/clock.Clock` (or, externally,
+  any type satisfying `interface{ Now() time.Time }` — Go's structural
+  interface satisfaction means existing test fakes continue to work).
+  `reverb.Clock` is preserved as a type alias.
+- `internal/hashutil.SHA256` and `internal/hashutil.ContentHash` — no
+  production callers; tests inline `crypto/sha256` directly.
+- `pkg/lineage.Invalidator.Run` — duplicated the batch-flush pattern
+  already implemented in `Client.invalidationLoop`. Production code uses
+  the latter; the only test referencing `Run` was removed.
+- `pkg/embedding/fake.errFakeEmbeddingFailure` custom error type, replaced
+  with `errors.New(...)`. `ErrFakeEmbeddingFailure` is unchanged.
+- `metrics.StartStoreGetSpan`, `StartStorePutSpan`, `StartStoreDeleteSpan`,
+  `StartStoreDeleteBatchSpan` on `*Tracer`. These had no production callers
+  and have been superseded by the `*StoreTracer` methods which carry the
+  backend label.
+
+### Fixed
+
+- `pkg/reverb/client.go` invalidation loop: pending events buffered in
+  memory at shutdown are now flushed before return when the CDC channel
+  closes during the drain phase.
 
 ---
 

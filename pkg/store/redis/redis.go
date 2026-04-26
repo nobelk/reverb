@@ -9,14 +9,10 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
+	"github.com/nobelk/reverb/pkg/metrics"
 	"github.com/nobelk/reverb/pkg/store"
 )
-
-const tracerName = "github.com/nobelk/reverb/pkg/store/redis"
 
 // incrementHitScript atomically reads the entry JSON, increments HitCount,
 // updates LastHitAt, and writes it back — all inside a single Redis eval.
@@ -73,6 +69,7 @@ return 1
 type Store struct {
 	client *goredis.Client
 	prefix string
+	tracer *metrics.StoreTracer
 }
 
 // New creates a new Redis store.
@@ -85,7 +82,7 @@ func New(addr, password string, db int, prefix string) (*Store, error) {
 	if prefix == "" {
 		prefix = "reverb:"
 	}
-	return &Store{client: client, prefix: prefix}, nil
+	return &Store{client: client, prefix: prefix, tracer: metrics.NewStoreTracer("redis")}, nil
 }
 
 func (s *Store) entryKey(id string) string {
@@ -101,13 +98,11 @@ func (s *Store) lineageKey(sourceID string) string {
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get")
+	ctx, span := s.tracer.StartGet(ctx, id)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	data, err := s.client.HGet(ctx, s.entryKey(id), "data").Bytes()
@@ -115,27 +110,23 @@ func (s *Store) Get(ctx context.Context, id string) (*store.CacheEntry, error) {
 		if errors.Is(err, goredis.Nil) {
 			return nil, nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, fmt.Errorf("redis HGet: %w", err)
 	}
 	var entry store.CacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, fmt.Errorf("unmarshal entry: %w", err)
 	}
 	return &entry, nil
 }
 
 func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) (*store.CacheEntry, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.get_by_hash")
+	ctx, span := s.tracer.StartGetByHash(ctx, namespace)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.namespace", namespace))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return nil, err
 	}
 	id, err := s.client.Get(ctx, s.hashKey(namespace, hash)).Result()
@@ -149,13 +140,11 @@ func (s *Store) GetByHash(ctx context.Context, namespace string, hash [32]byte) 
 }
 
 func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.put")
+	ctx, span := s.tracer.StartPut(ctx, entry.ID, entry.Namespace)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", entry.ID), attribute.String("gen_ai.cache.namespace", entry.Namespace))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 
@@ -204,7 +193,7 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 	//   [5..4+removeCount] = lineageKeysToRemove
 	//   [4+removeCount+1] = addCount
 	//   [4+removeCount+2..] = lineageKeysToAdd
-	argv := make([]interface{}, 0, 4+len(removeLineageKeys)+1+len(addLineageKeys))
+	argv := make([]any, 0, 4+len(removeLineageKeys)+1+len(addLineageKeys))
 	argv = append(argv, oldHashKey)
 	argv = append(argv, string(data))
 	argv = append(argv, entry.ID)
@@ -224,13 +213,11 @@ func (s *Store) Put(ctx context.Context, entry *store.CacheEntry) error {
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete")
+	ctx, span := s.tracer.StartDelete(ctx, id)
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.String("gen_ai.cache.entry_id", id))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 	entry, err := s.Get(ctx, id)
@@ -255,19 +242,16 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Store) DeleteBatch(ctx context.Context, ids []string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "gen_ai.cache.store.delete_batch")
+	ctx, span := s.tracer.StartDeleteBatch(ctx, len(ids))
 	defer span.End()
-	span.SetAttributes(attribute.String("gen_ai.system", "reverb"), attribute.String("gen_ai.cache.store.backend", "redis"), attribute.Int("gen_ai.cache.batch_size", len(ids)))
 
 	if err := ctx.Err(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		metrics.RecordError(span, err)
 		return err
 	}
 	for _, id := range ids {
 		if err := s.Delete(ctx, id); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			metrics.RecordError(span, err)
 			return err
 		}
 	}

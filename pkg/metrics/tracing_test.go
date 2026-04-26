@@ -50,21 +50,21 @@ func TestTracer_StartInvalidateEntrySpan(t *testing.T) {
 	span.End()
 }
 
-func TestTracer_StartStoreDeleteSpan(t *testing.T) {
+func TestStoreTracer_StartDelete(t *testing.T) {
 	tp := noop.NewTracerProvider()
-	tr := metrics.NewTracerWithProvider(tp)
+	st := metrics.NewStoreTracerWithProvider(tp, "memory")
 
-	ctx, span := tr.StartStoreDeleteSpan(context.Background(), "entry-id-123")
+	ctx, span := st.StartDelete(context.Background(), "entry-id-123")
 	assert.NotNil(t, span)
 	assert.NotNil(t, ctx)
 	span.End()
 }
 
-func TestTracer_StartStoreDeleteBatchSpan(t *testing.T) {
+func TestStoreTracer_StartDeleteBatch(t *testing.T) {
 	tp := noop.NewTracerProvider()
-	tr := metrics.NewTracerWithProvider(tp)
+	st := metrics.NewStoreTracerWithProvider(tp, "memory")
 
-	ctx, span := tr.StartStoreDeleteBatchSpan(context.Background(), 5)
+	ctx, span := st.StartDeleteBatch(context.Background(), 5)
 	assert.NotNil(t, span)
 	assert.NotNil(t, ctx)
 	span.End()
@@ -100,23 +100,32 @@ func TestTracer_StartVectorSearchSpan(t *testing.T) {
 	span.End()
 }
 
-func TestTracer_StartStoreGetSpan(t *testing.T) {
+func TestStoreTracer_StartGet(t *testing.T) {
 	tp := noop.NewTracerProvider()
-	tr := metrics.NewTracerWithProvider(tp)
+	st := metrics.NewStoreTracerWithProvider(tp, "redis")
 
-	ctx, span := tr.StartStoreGetSpan(context.Background(), "entry-id-123")
+	ctx, span := st.StartGet(context.Background(), "entry-id-123")
 	assert.NotNil(t, span)
 	assert.NotNil(t, ctx)
 	span.End()
 }
 
-func TestTracer_StartStorePutSpan(t *testing.T) {
+func TestStoreTracer_StartPut(t *testing.T) {
 	tp := noop.NewTracerProvider()
-	tr := metrics.NewTracerWithProvider(tp)
+	st := metrics.NewStoreTracerWithProvider(tp, "redis")
 
-	ctx, span := tr.StartStorePutSpan(context.Background(), "entry-id-123", "ns1")
+	ctx, span := st.StartPut(context.Background(), "entry-id-123", "ns1")
 	assert.NotNil(t, span)
 	assert.NotNil(t, ctx)
+	span.End()
+}
+
+func TestNewStoreTracer_UsesGlobalProvider(t *testing.T) {
+	st := metrics.NewStoreTracer("badger")
+	assert.NotNil(t, st)
+	ctx, span := st.StartGet(context.Background(), "id")
+	assert.NotNil(t, ctx)
+	assert.NotNil(t, span)
 	span.End()
 }
 

@@ -3,7 +3,6 @@ package lineage
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -29,9 +28,6 @@ type Invalidator struct {
 	vectorIndex vector.Index
 	index       *Index
 	logger      *slog.Logger
-
-	mu      sync.Mutex
-	pending []string // accumulated entry IDs to delete
 }
 
 // NewInvalidator creates a new invalidation engine.
@@ -122,41 +118,3 @@ func (inv *Invalidator) ProcessEvent(ctx context.Context, event ChangeEvent) (in
 	return len(toDelete), nil
 }
 
-// Run starts the invalidation loop, reading events from the channel until ctx is canceled.
-func (inv *Invalidator) Run(ctx context.Context, events <-chan ChangeEvent) {
-	batchSize := 100
-	flushInterval := 500 * time.Millisecond
-	ticker := time.NewTicker(flushInterval)
-	defer ticker.Stop()
-
-	var pending []ChangeEvent
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Process remaining events
-			for _, e := range pending {
-				inv.ProcessEvent(context.Background(), e)
-			}
-			return
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			pending = append(pending, event)
-			if len(pending) >= batchSize {
-				for _, e := range pending {
-					inv.ProcessEvent(ctx, e)
-				}
-				pending = pending[:0]
-			}
-		case <-ticker.C:
-			if len(pending) > 0 {
-				for _, e := range pending {
-					inv.ProcessEvent(ctx, e)
-				}
-				pending = pending[:0]
-			}
-		}
-	}
-}

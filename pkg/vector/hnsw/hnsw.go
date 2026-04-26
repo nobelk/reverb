@@ -1,12 +1,13 @@
 package hnsw
 
 import (
+	"cmp"
 	"container/heap"
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
-	"sort"
+	"math/rand/v2"
+	"slices"
 	"sync"
 
 	"github.com/nobelk/reverb/pkg/vector"
@@ -68,7 +69,7 @@ func New(cfg Config, dims int) *Index {
 		nodes: make(map[string]*node),
 		mMax0: cfg.M * 2,
 		ml:    1.0 / math.Log(float64(cfg.M)),
-		rng:   rand.New(rand.NewSource(rand.Int63())),
+		rng:   rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
 }
 
@@ -122,10 +123,7 @@ func (idx *Index) Add(_ context.Context, id string, vec []float32) error {
 
 	// Phase 2: for each layer from min(level, maxLayer) down to 0,
 	// search for neighbors and connect them.
-	topLayer := level
-	if idx.maxLayer < topLayer {
-		topLayer = idx.maxLayer
-	}
+	topLayer := min(level, idx.maxLayer)
 
 	for lc := topLayer; lc >= 0; lc-- {
 		candidates := idx.searchLayer(vec, ep, idx.cfg.EfConstruction, lc)
@@ -139,17 +137,17 @@ func (idx *Index) Add(_ context.Context, id string, vec []float32) error {
 
 		// Bidirectional connections.
 		for _, nb := range neighbors {
-			nd.friends[lc][nb.id] = struct{}{}
-			nb.friends[lc][nd.id] = struct{}{}
+			nd.friends[lc][nb.n.id] = struct{}{}
+			nb.n.friends[lc][nd.id] = struct{}{}
 
 			// Prune neighbor's connections if over limit.
-			if len(nb.friends[lc]) > maxConn {
-				idx.pruneConnections(nb, lc, maxConn)
+			if len(nb.n.friends[lc]) > maxConn {
+				idx.pruneConnections(nb.n, lc, maxConn)
 			}
 		}
 
 		if len(candidates) > 0 {
-			ep = candidates[0]
+			ep = candidates[0].n
 		}
 	}
 
@@ -178,30 +176,23 @@ func (idx *Index) Search(_ context.Context, query []float32, k int, minScore flo
 	}
 
 	// Search layer 0 with efSearch candidates.
-	ef := idx.cfg.EfSearch
-	if ef < k {
-		ef = k
-	}
+	ef := max(idx.cfg.EfSearch, k)
 	candidates := idx.searchLayer(query, ep, ef, 0)
 
-	// Collect results, filter by minScore, limit to k.
+	// Collect results, filter by minScore, limit to k. Reuse the scores already
+	// computed during search — no recomputation needed.
 	var results []vector.SearchResult
 	for _, c := range candidates {
-		score := cosineSimilarity(query, c.vector)
-		if score >= minScore {
-			results = append(results, vector.SearchResult{ID: c.id, Score: score})
+		if c.score >= minScore {
+			results = append(results, vector.SearchResult{ID: c.n.id, Score: c.score})
 		}
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	slices.SortFunc(results, func(a, b vector.SearchResult) int {
+		return cmp.Compare(b.Score, a.Score) // descending
 	})
 
-	if len(results) > k {
-		results = results[:k]
-	}
-
-	return results, nil
+	return results[:min(len(results), k)], nil
 }
 
 func (idx *Index) Delete(_ context.Context, id string) error {
@@ -258,7 +249,7 @@ func (idx *Index) randomLevel() int {
 // by greedily following neighbors.
 func (idx *Index) greedyClosest(query []float32, ep *node, layer int) *node {
 	current := ep
-	currentSim := cosineSimilarity(query, current.vector)
+	currentSim := vector.CosineSimilarity(query, current.vector)
 	for {
 		improved := false
 		if layer < len(current.friends) {
@@ -267,7 +258,7 @@ func (idx *Index) greedyClosest(query []float32, ep *node, layer int) *node {
 				if !ok {
 					continue
 				}
-				sim := cosineSimilarity(query, friend.vector)
+				sim := vector.CosineSimilarity(query, friend.vector)
 				if sim > currentSim {
 					currentSim = sim
 					current = friend
@@ -282,8 +273,11 @@ func (idx *Index) greedyClosest(query []float32, ep *node, layer int) *node {
 	return current
 }
 
-// searchLayer performs a beam search at a single layer, returning up to ef closest nodes.
-func (idx *Index) searchLayer(query []float32, ep *node, ef int, layer int) []*node {
+// searchLayer performs a beam search at a single layer, returning up to ef
+// closest nodes paired with their similarity scores. Returning scoredNodes
+// (rather than bare *node) lets callers reuse the scores instead of
+// recomputing cosine similarity downstream.
+func (idx *Index) searchLayer(query []float32, ep *node, ef int, layer int) []scoredNode {
 	visited := make(map[string]struct{})
 	visited[ep.id] = struct{}{}
 
@@ -292,7 +286,7 @@ func (idx *Index) searchLayer(query []float32, ep *node, ef int, layer int) []*n
 	candidates := &candidateHeap{}
 	results := &resultHeap{}
 
-	epScore := cosineSimilarity(query, ep.vector)
+	epScore := vector.CosineSimilarity(query, ep.vector)
 
 	heap.Push(candidates, scoredNode{n: ep, score: epScore})
 	heap.Push(results, scoredNode{n: ep, score: epScore})
@@ -322,7 +316,7 @@ func (idx *Index) searchLayer(query []float32, ep *node, ef int, layer int) []*n
 					continue
 				}
 
-				fScore := cosineSimilarity(query, friend.vector)
+				fScore := vector.CosineSimilarity(query, friend.vector)
 
 				// Add to results if there's room or if this is better than worst result.
 				if results.Len() < ef {
@@ -338,21 +332,15 @@ func (idx *Index) searchLayer(query []float32, ep *node, ef int, layer int) []*n
 	}
 
 	// Extract results sorted by score descending.
-	out := make([]*node, results.Len())
+	out := make([]scoredNode, results.Len())
 	for i := len(out) - 1; i >= 0; i-- {
-		out[i] = heap.Pop(results).(scoredNode).n
+		out[i] = heap.Pop(results).(scoredNode)
 	}
-
-	// Sort descending by similarity.
-	sort.Slice(out, func(i, j int) bool {
-		return cosineSimilarity(query, out[i].vector) > cosineSimilarity(query, out[j].vector)
-	})
-
 	return out
 }
 
 // selectNeighbors selects the best neighbors from candidates (simple heuristic: top M by similarity).
-func (idx *Index) selectNeighbors(candidates []*node, m int) []*node {
+func (idx *Index) selectNeighbors(candidates []scoredNode, m int) []scoredNode {
 	if len(candidates) <= m {
 		return candidates
 	}
@@ -380,15 +368,16 @@ func (idx *Index) pruneConnections(nd *node, layer int, maxConn int) {
 		if !ok {
 			continue
 		}
-		scored = append(scored, friendScore{id: fID, score: cosineSimilarity(nd.vector, f.vector)})
+		scored = append(scored, friendScore{id: fID, score: vector.CosineSimilarity(nd.vector, f.vector)})
 	}
 
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].score > scored[j].score
+	slices.SortFunc(scored, func(a, b friendScore) int {
+		return cmp.Compare(b.score, a.score) // descending
 	})
 
-	newFriends := make(map[string]struct{}, maxConn)
-	for i := 0; i < maxConn && i < len(scored); i++ {
+	keep := min(maxConn, len(scored))
+	newFriends := make(map[string]struct{}, keep)
+	for i := 0; i < keep; i++ {
 		newFriends[scored[i].id] = struct{}{}
 	}
 
@@ -430,35 +419,17 @@ func (idx *Index) CheckBidirectional() error {
 	return nil
 }
 
-// cosineSimilarity computes the cosine similarity between two vectors.
-func cosineSimilarity(a, b []float32) float32 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	denom := math.Sqrt(normA) * math.Sqrt(normB)
-	if denom == 0 {
-		return 0
-	}
-	return float32(dot / denom)
-}
-
 // --- Heap implementations for searchLayer ---
 
 // candidateHeap is a max-heap by score (highest similarity at top).
 // Used to always expand the most promising candidate first.
 type candidateHeap []scoredNode
 
-func (h candidateHeap) Len() int            { return len(h) }
-func (h candidateHeap) Less(i, j int) bool  { return h[i].score > h[j].score }
-func (h candidateHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *candidateHeap) Push(x interface{}) { *h = append(*h, x.(scoredNode)) }
-func (h *candidateHeap) Pop() interface{} {
+func (h candidateHeap) Len() int           { return len(h) }
+func (h candidateHeap) Less(i, j int) bool { return h[i].score > h[j].score }
+func (h candidateHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *candidateHeap) Push(x any)        { *h = append(*h, x.(scoredNode)) }
+func (h *candidateHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -470,11 +441,11 @@ func (h *candidateHeap) Pop() interface{} {
 // Used to track the ef-best results and trim the worst.
 type resultHeap []scoredNode
 
-func (h resultHeap) Len() int            { return len(h) }
-func (h resultHeap) Less(i, j int) bool  { return h[i].score < h[j].score }
-func (h resultHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *resultHeap) Push(x interface{}) { *h = append(*h, x.(scoredNode)) }
-func (h *resultHeap) Pop() interface{} {
+func (h resultHeap) Len() int           { return len(h) }
+func (h resultHeap) Less(i, j int) bool { return h[i].score < h[j].score }
+func (h resultHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *resultHeap) Push(x any)        { *h = append(*h, x.(scoredNode)) }
+func (h *resultHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]

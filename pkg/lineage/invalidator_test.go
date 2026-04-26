@@ -165,26 +165,3 @@ func TestInvalidator_ConcurrentInvalidation(t *testing.T) {
 	assert.Equal(t, int64(0), stats.TotalEntries)
 }
 
-func TestInvalidator_CleanShutdown(t *testing.T) {
-	s := memory.New()
-	vi := flat.New(0)
-	idx := lineage.NewIndex(s)
-	inv := lineage.NewInvalidator(s, vi, idx, nil)
-
-	events := make(chan lineage.ChangeEvent, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		inv.Run(ctx, events)
-		close(done)
-	}()
-
-	cancel()
-	select {
-	case <-done:
-		// Clean shutdown
-	case <-time.After(2 * time.Second):
-		t.Fatal("invalidator did not shut down cleanly")
-	}
-}
