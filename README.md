@@ -99,6 +99,8 @@ docker run -p 8080:8080 reverb:latest
 
 ## HTTP API
 
+The wire contract is published as an OpenAPI 3.1 document at [`openapi/v1.yaml`](openapi/v1.yaml) and rendered with Swagger UI at the [**HTTP API contract**](https://nobelk.github.io/reverb/) page on GitHub Pages. Language SDKs are generated from this spec.
+
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/v1/lookup` | Check cache for a matching response |
