@@ -44,10 +44,8 @@ go.work.sum
 # env file
 .env
 
-# omc file
-.omc/
-.omc/*
-.omc
+# idea
+.idea
 
 # bin
 bin/
