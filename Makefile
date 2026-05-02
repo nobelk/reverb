@@ -1,13 +1,24 @@
-.PHONY: build test test-unit test-integration test-all lint bench bench-quality bench-baseline docker docker-test clean proto-gen \
+.PHONY: build build-cli test test-unit test-integration test-all lint bench bench-quality bench-baseline docker docker-cli docker-test clean proto-gen \
         run-server sdk-regen-python sdk-regen-js sdk-smoke-python sdk-smoke-js
 
 # --- Build ---
 build:
 	go build -o bin/reverb ./cmd/reverb
 
+# --- Build the operator CLI ---
+# `reverb-cli` is a separate binary from `reverb` so operators can install
+# it on machines that never run a cache. CGO is off — the CLI ships as a
+# static binary alongside the SDK release artifacts.
+build-cli:
+	CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/reverb-cli ./cmd/reverb-cli
+
 # --- Production Docker image ---
 docker:
 	docker build -t reverb:latest .
+
+# --- reverb-cli Docker image (separate, intentionally tiny base) ---
+docker-cli:
+	docker build -f Dockerfile.cli -t reverb-cli:latest .
 
 # --- Unit tests (no external deps, runs locally) ---
 test-unit:

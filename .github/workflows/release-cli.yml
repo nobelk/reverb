@@ -1,0 +1,85 @@
+name: Release reverb-cli
+
+# Triggered when a tag matching v*.*.* is pushed. Cross-builds the CLI for
+# the platforms an operator is most likely to need and uploads the
+# binaries + the Docker image. Matches the distribution-shapes section of
+# `specs/2026-04-30-adoption-surface/plan.md` §3.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  binaries:
+    name: Build reverb-cli binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64, ext: ".exe" }
+    env:
+      # Funnel the tag through env rather than ${{ }} interpolation in
+      # run: blocks, per github.com/security workflow-injection guidance.
+      REF_NAME: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          EXT: ${{ matrix.ext }}
+        run: |
+          mkdir -p dist
+          OUT="dist/reverb-cli_${REF_NAME}_${GOOS}_${GOARCH}${EXT}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${REF_NAME}" \
+            -o "$OUT" ./cmd/reverb-cli
+          # Surface the artifact path for the upload step.
+          echo "ARTIFACT=$OUT" >> "$GITHUB_ENV"
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARTIFACT }}
+
+  docker:
+    name: Build and publish reverb-cli image
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cli
+          # linux/amd64 + arm64 covers the Kubernetes / EKS / GKE majority.
+          # 386 / armv7 are intentionally omitted — operator tools are
+          # invoked from CI runners and laptops, not embedded boards.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/reverb-cli:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/reverb-cli:latest
+          build-args: |
+            VERSION=${{ github.ref_name }}

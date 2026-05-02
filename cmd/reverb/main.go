@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -64,7 +63,7 @@ func main() {
 		}
 	}
 
-	applyEnvOverrides(&cfg)
+	cfg.ApplyEnvOverrides()
 	cfg.ApplyDefaults()
 
 	if err := cfg.Validate(); err != nil {
@@ -262,47 +261,6 @@ func storeReadiness(s store.Store) server.ReadinessChecker {
 	return func(ctx context.Context) error {
 		_, err := s.Stats(ctx)
 		return err
-	}
-}
-
-// applyEnvOverrides applies environment variable overrides to cfg.
-func applyEnvOverrides(cfg *reverb.Config) {
-	if v := os.Getenv("REVERB_DEFAULT_TTL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.DefaultTTL = d
-		}
-	}
-	if v := os.Getenv("REVERB_SIMILARITY_THRESHOLD"); v != "" {
-		if f, err := strconv.ParseFloat(v, 32); err == nil {
-			cfg.SimilarityThreshold = float32(f)
-		}
-	}
-	if v := os.Getenv("REVERB_EMBEDDING_API_KEY"); v != "" {
-		cfg.Embedding.APIKey = v
-	}
-	if v := os.Getenv("REVERB_REDIS_PASSWORD"); v != "" {
-		cfg.Store.RedisPassword = v
-	}
-	if v := os.Getenv("REVERB_OTEL_ENABLED"); v == "true" || v == "1" {
-		cfg.OTel.Enabled = true
-	}
-	if v := os.Getenv("REVERB_OTEL_ENDPOINT"); v != "" {
-		cfg.OTel.Endpoint = v
-	}
-	if v := os.Getenv("REVERB_OTEL_SERVICE_NAME"); v != "" {
-		cfg.OTel.ServiceName = v
-	}
-	if v := os.Getenv("REVERB_OTEL_INSECURE"); v == "true" || v == "1" {
-		cfg.OTel.Insecure = true
-	}
-	if v := os.Getenv("REVERB_AUTH_ENABLED"); v == "true" || v == "1" {
-		cfg.Auth.Enabled = true
-	}
-	if v := os.Getenv("REVERB_AUTH_API_KEY"); v != "" {
-		cfg.Auth.Enabled = true
-		cfg.Auth.Tenants = append(cfg.Auth.Tenants, reverb.Tenant{
-			ID: "default", Name: "Default", APIKeys: []string{v},
-		})
 	}
 }
 

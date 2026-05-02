@@ -49,15 +49,24 @@ users can `pip install` / `npm install` and reach the cache in five lines.
 Goal: give operators a CLI for the workflows that today require `curl` or
 custom Go code.
 
-- [ ] Add `cmd/reverb-cli/` (separate `main` package, separate binary —
+- [x] Add `cmd/reverb-cli/` (separate `main` package, separate binary —
       do not bundle into `cmd/reverb`). Subcommands per roadmap §1.4:
       `stats`, `lookup`, `store`, `invalidate <source>`,
       `evict --namespace`, `warm <jsonl>`, `export`, `import`,
-      `validate-config`.
-- [ ] CLI talks HTTP by default; gRPC via `--transport grpc` flag.
+      `validate-config`. The three endpoints with no current `/v1/*`
+      surface (`evict`, `export`, `import`) ship as honest stubs that
+      exit `64` (`EX_USAGE`) with a pointer to this spec — they
+      graduate once the matching server endpoints land in
+      `openapi/v1.yaml`.
+- [x] CLI talks HTTP by default; gRPC via `--transport grpc` flag.
       Reuse the wire types from `pkg/server/proto`.
-- [ ] Ship a `reverb-cli` Docker image and a Homebrew tap formula.
-- [ ] Document the CLI in `docs/cli.md` with one example per subcommand.
+- [x] Ship a `reverb-cli` Docker image (`Dockerfile.cli`, distroless
+      static base) and a release workflow (`.github/workflows/release-cli.yml`)
+      that cross-builds linux/darwin/windows binaries on every `v*.*.*`
+      tag and publishes a multi-arch image to GHCR. The Homebrew tap
+      formula is deferred to the first tagged release — it has to point
+      at real release-asset URLs, which only exist post-tag.
+- [x] Document the CLI in `docs/cli.md` with one example per subcommand.
 
 > **Deferred:** The graphical admin UI at `/_admin` originally tracked here
 > has moved to roadmap §2.24 (Phase 2). Phase 1 ships the CLI alone; the

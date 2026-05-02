@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/nobelk/reverb/internal/clock"
@@ -265,6 +267,53 @@ func (c *Config) validateListenAddrs() error {
 
 func isWildcardHost(h string) bool {
 	return h == "" || h == "0.0.0.0" || h == "::"
+}
+
+// ApplyEnvOverrides applies REVERB_* environment variables to the config in
+// the same order cmd/reverb does at startup. Callers that mirror the server's
+// startup contract (the binary itself, `reverb-cli validate-config`, future
+// inspection tools) must run this between YAML load and ApplyDefaults/Validate
+// so they see the same effective config the server will. Keeping this on the
+// type — alongside ApplyDefaults and Validate — prevents the parity drift
+// that previously let `validate-config` accept configs the server rejected.
+func (c *Config) ApplyEnvOverrides() {
+	if v := os.Getenv("REVERB_DEFAULT_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			c.DefaultTTL = d
+		}
+	}
+	if v := os.Getenv("REVERB_SIMILARITY_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 32); err == nil {
+			c.SimilarityThreshold = float32(f)
+		}
+	}
+	if v := os.Getenv("REVERB_EMBEDDING_API_KEY"); v != "" {
+		c.Embedding.APIKey = v
+	}
+	if v := os.Getenv("REVERB_REDIS_PASSWORD"); v != "" {
+		c.Store.RedisPassword = v
+	}
+	if v := os.Getenv("REVERB_OTEL_ENABLED"); v == "true" || v == "1" {
+		c.OTel.Enabled = true
+	}
+	if v := os.Getenv("REVERB_OTEL_ENDPOINT"); v != "" {
+		c.OTel.Endpoint = v
+	}
+	if v := os.Getenv("REVERB_OTEL_SERVICE_NAME"); v != "" {
+		c.OTel.ServiceName = v
+	}
+	if v := os.Getenv("REVERB_OTEL_INSECURE"); v == "true" || v == "1" {
+		c.OTel.Insecure = true
+	}
+	if v := os.Getenv("REVERB_AUTH_ENABLED"); v == "true" || v == "1" {
+		c.Auth.Enabled = true
+	}
+	if v := os.Getenv("REVERB_AUTH_API_KEY"); v != "" {
+		c.Auth.Enabled = true
+		c.Auth.Tenants = append(c.Auth.Tenants, Tenant{
+			ID: "default", Name: "Default", APIKeys: []string{v},
+		})
+	}
 }
 
 // ApplyDefaults fills in zero-value fields with defaults.
