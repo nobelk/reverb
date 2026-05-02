@@ -1,0 +1,115 @@
+name: SDK JS
+
+on:
+  # The smoke job is the release gate that proves the published
+  # `@reverb/client` still works against a server built from the merge
+  # candidate (see RUNBOOK.md §"SDK Release Coordination"). It must
+  # therefore run on any change that can shift server behavior — not just
+  # SDK-local changes. That means cmd/, pkg/, internal/, go.{mod,sum}, and
+  # the OpenAPI spec.
+  push:
+    branches: [main]
+    paths:
+      - "sdk/js/**"
+      - "openapi/v1.yaml"
+      - ".github/workflows/sdk-js.yml"
+      - "cmd/reverb/**"
+      - "pkg/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main]
+    paths:
+      - "sdk/js/**"
+      - "openapi/v1.yaml"
+      - ".github/workflows/sdk-js.yml"
+      - "cmd/reverb/**"
+      - "pkg/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Build + Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18.x", "20.x", "22.x"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: sdk/js/package-lock.json
+      - name: Install
+        working-directory: sdk/js
+        run: npm install --no-audit --no-fund
+      - name: Lint
+        working-directory: sdk/js
+        run: npm run lint
+      - name: Typecheck
+        working-directory: sdk/js
+        run: npm run typecheck
+      - name: Unit tests
+        working-directory: sdk/js
+        run: npm test
+      - name: Build dual ESM + CJS
+        working-directory: sdk/js
+        run: npm run build
+
+  smoke:
+    name: Smoke Test (Node + Workers)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          cache-dependency-path: sdk/js/package-lock.json
+      - name: Build reverb server
+        run: go build -o bin/reverb ./cmd/reverb
+      - name: Start reverb server
+        run: |
+          ./bin/reverb &
+          echo $! > /tmp/reverb.pid
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Server is healthy"
+              break
+            fi
+            echo "Waiting for server... ($i)"
+            sleep 1
+          done
+      - name: Install + build SDK
+        working-directory: sdk/js
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - name: Node smoke test
+        working-directory: sdk/js
+        env:
+          REVERB_URL: http://localhost:8080
+        run: npm run smoke:node
+      - name: Workers smoke test
+        working-directory: sdk/js
+        env:
+          REVERB_URL: http://localhost:8080
+        run: npm run smoke:workers
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/reverb.pid ]; then
+            kill "$(cat /tmp/reverb.pid)" 2>/dev/null || true
+          fi

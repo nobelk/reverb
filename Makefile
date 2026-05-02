@@ -1,4 +1,5 @@
-.PHONY: build test test-unit test-integration test-all lint bench bench-quality bench-baseline docker docker-test clean proto-gen
+.PHONY: build test test-unit test-integration test-all lint bench bench-quality bench-baseline docker docker-test clean proto-gen \
+        run-server sdk-regen-python sdk-regen-js sdk-smoke-python sdk-smoke-js
 
 # --- Build ---
 build:
@@ -72,8 +73,46 @@ proto-gen:
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		pkg/server/proto/reverb.proto
 
+# --- Run the standalone server (used by SDK smoke tests) ---
+run-server: build
+	./bin/reverb
+
+# --- SDK wire-client regeneration ---
+# Both targets shell out to openapi-generator-cli via npx so contributors
+# don't need a global install. The config files in each sdk/*/openapi-generator/
+# directory pin generator + version. The generated client is placed under
+# reverb/_wire/ (Python) and src/_wire/ (TS); the hand-rolled facade in
+# reverb/__init__.py / src/index.ts is unaffected.
+sdk-regen-python:
+	@command -v npx >/dev/null 2>&1 || { \
+		echo "npx is required for openapi-generator-cli — install Node ≥ 18"; exit 1; }
+	cd sdk/python && npx --yes @openapitools/openapi-generator-cli@2.13.4 generate \
+		-i ../../openapi/v1.yaml \
+		-c openapi-generator/config.yaml \
+		-o reverb/_wire
+
+sdk-regen-js:
+	@command -v npx >/dev/null 2>&1 || { \
+		echo "npx is required for openapi-generator-cli — install Node ≥ 18"; exit 1; }
+	cd sdk/js && npx --yes @openapitools/openapi-generator-cli@2.13.4 generate \
+		-i ../../openapi/v1.yaml \
+		-c openapi-generator/config.yaml \
+		-o src/_wire
+
+# --- SDK smoke tests (require a running server on :8080) ---
+sdk-smoke-python:
+	cd sdk/python && pip install -e . >/dev/null && python scripts/smoke_test.py
+
+sdk-smoke-js:
+	cd sdk/js && npm install --no-audit --no-fund >/dev/null \
+		&& npm run build >/dev/null \
+		&& npm run smoke:node
+
 # --- Cleanup ---
 clean:
 	cd test && docker compose down -v 2>/dev/null || true
 	docker rm -f reverb-integration 2>/dev/null || true
-	rm -rf bin/ coverage.out coverage.html data/
+	rm -rf bin/ coverage.out coverage.html data/ \
+		sdk/python/.pytest_cache sdk/python/.ruff_cache sdk/python/.mypy_cache \
+		sdk/python/build sdk/python/dist sdk/python/*.egg-info \
+		sdk/js/dist sdk/js/node_modules

@@ -10,6 +10,7 @@ reference, see [`README.md`](README.md) and [`reverb-design-doc.md`](reverb-desi
 - [Capacity & Performance Knobs](#capacity--performance-knobs)
 - [Debugging Workflow](#debugging-workflow)
 - [Rollback & Upgrade Notes](#rollback--upgrade-notes)
+- [SDK Release Coordination](#sdk-release-coordination)
 
 ---
 
@@ -575,3 +576,92 @@ curl -s http://reverb:8080/v1/stats | jq '.hit_rate'
 
 If `hit_rate` remains at pre-upgrade levels after five minutes of steady
 traffic, the upgrade is clean.
+
+---
+
+## SDK Release Coordination
+
+The Python (`sdk/python`, published as `reverb` on PyPI) and TypeScript
+(`sdk/js`, published as `@reverb/client` on npm) clients are generated from
+[`openapi/v1.yaml`](openapi/v1.yaml) — that file is the single source of
+truth for the HTTP wire surface.
+
+> **Sibling-repo migration.** The SDKs currently live in this repo under
+> `sdk/python` and `sdk/js`. Per `specs/tech-stack.md` §"Repository
+> composition" the main repo will eventually be Go-only and these will move
+> to `nobelk/reverb-python` and `nobelk/reverb-js`. The release-coordination
+> rules below apply equally before and after that split — only the file
+> paths in step 2 change.
+
+### Release-order invariant
+
+When a release changes `openapi/v1.yaml` in any way that affects the public
+HTTP surface, the SDKs must be regenerated and tagged **before** the
+main-repo release goes out:
+
+1. **Land the OpenAPI change** on the main-repo PR. The
+   `openapi_drift_test` CI job must be green — drift between the spec and
+   the Go handlers is a release blocker.
+2. **Regenerate SDKs** from the merged spec:
+   ```bash
+   make sdk-regen-python    # rebuilds sdk/python wire client
+   make sdk-regen-js        # rebuilds sdk/js wire client
+   ```
+   Inspect the diff. Schema-additive changes (a new optional field) are
+   safe; renames and removals are breaking and require a major bump.
+3. **Bump SDK versions** to a matching minor (`reverb` and `@reverb/client`
+   move together). Backwards-compatible changes get a minor bump; breaking
+   changes get a major bump and force a `/v2/` path on the server side per
+   the additive-evolution rule in `openapi/v1.yaml`.
+4. **Cut SDK releases first.** Tag and publish the SDKs to PyPI and npm
+   with the new version. The `sdk-python` and `sdk-js` CI jobs must be
+   green — both run their smoke suites against a `cmd/reverb` built from
+   the merge candidate.
+5. **Cut the main-repo release.** Only after both SDKs are live on their
+   registries. This ordering ensures that a user who reads the new
+   release notes and runs `pip install -U reverb` finds the matching
+   version — never a "package not found" or a stale 0.N-1 client.
+
+### What "matching" means
+
+| Main-repo release | `reverb` (PyPI) | `@reverb/client` (npm) |
+|---|---|---|
+| `v0.5.0` | `0.5.0` | `0.5.0` |
+| `v0.5.1` (patch — server only, no API change) | `0.5.0` (unchanged) | `0.5.0` (unchanged) |
+| `v0.6.0` (minor — additive `/v1/` change) | `0.6.0` | `0.6.0` |
+| `v1.0.0` (major — `/v2/` introduced) | `1.0.0` | `1.0.0` |
+
+Patch releases that only touch Go server internals (a Redis store fix,
+HNSW tuning) do **not** require an SDK release. The Python/JS releases
+move only when the OpenAPI surface moves.
+
+### When the SDK CI is red
+
+If `sdk-python` or `sdk-js` fails on the main-repo release-candidate
+branch:
+
+- **Do not** publish the main-repo release. The SDKs reference each main
+  release as their tested-against version; shipping a main release that
+  the SDK CI flagged as broken means an `npm install` user gets an SDK
+  that fails against the new server.
+- Diagnose first. The smoke jobs run lookup → store → lookup → invalidate;
+  a failure here usually means a request body shape changed in the Go
+  handler without a matching `openapi/v1.yaml` update — which the
+  `openapi_drift_test` should already have caught. If the drift test was
+  green but the SDK smoke is red, you've found a gap in the drift test
+  worth fixing before continuing.
+
+### Pre-flight checklist (release captain)
+
+Before tagging a main-repo release that bumps the OpenAPI minor:
+
+- [ ] `openapi_drift_test` green on the merge candidate.
+- [ ] `make sdk-regen-python` produces no diff (or the diff is reviewed
+      and matches the OpenAPI changes intentionally).
+- [ ] `make sdk-regen-js` produces no diff (same).
+- [ ] `sdk-python` workflow green.
+- [ ] `sdk-js` workflow green.
+- [ ] PyPI and npm tokens for the release pipeline are still valid
+      (rotated annually).
+- [ ] CHANGELOG entries for `sdk/python/CHANGELOG.md` and
+      `sdk/js/CHANGELOG.md` cite the matching main-repo version.
