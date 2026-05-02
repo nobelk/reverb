@@ -9,7 +9,7 @@ For the live dependency list, read `go.mod`; this file describes the policies th
 | Concern | Choice | Status | Notes |
 |---|---|---|---|
 | Implementation language | Go | **Constitutional** | Load-bearing for performance and single-binary deploy. Migrating off Go is explicitly out of scope per `mission.md`. |
-| Repository composition | Go-only main repo | **Constitutional** | The main `nobelk/reverb` repository contains only Go source. Non-Go toolchains (JS/TS for the admin UI in `roadmap.md` 1.5, Python/TS SDKs in 1.2/1.3, dashboards JSON, etc.) live in sibling repos so the main repo stays buildable with `go build ./...` alone. |
+| Repository composition | Go-only main repo | **Constitutional** | The main `nobelk/reverb` repository contains only Go source. Non-Go toolchains (JS/TS for the admin UI in `roadmap.md` 2.24, Python/TS SDKs in 1.2/1.3, dashboards JSON, etc.) live in sibling repos so the main repo stays buildable with `go build ./...` alone. |
 | Minimum Go version | 1.25 | Incidental | Floor moves forward with Go releases; the project tracks the two most recent stable Go versions. |
 | CGO | Not required in the core | **Constitutional** | The core library and standalone binary build with `CGO_ENABLED=0`. CGO-dependent features (e.g., ONNX-runtime re-rankers) ship behind a build tag and are opt-in. |
 | Concurrency model | Standard `context.Context` propagation, goroutines, channels | Constitutional | All public APIs accept `context.Context` as the first argument. Cancellation must be honored. |

@@ -7,7 +7,7 @@ Phase: 1 · Date: 2026-04-30
 Verbatim from `specs/roadmap.md` §"Phase 1 exit criteria":
 
 - Python and TypeScript SDKs published; OpenAPI spec on GitHub Pages.
-- `reverb-cli` and admin UI shipped.
+- `reverb-cli` shipped. (Admin UI moved to Phase 2 — see §2.24.)
 - Streaming, reverse-proxy, re-ranker, and singleflight available behind
   opt-in flags or new APIs.
 - pgvector backend merged with conformance compliance.
@@ -57,8 +57,9 @@ The full Phase 1 cannot be marked complete until both specs ship.
       GitHub releases page; Docker image tagged; Homebrew formula
       merged. `reverb-cli stats --server localhost:8080` works against
       a stock standalone server.
-- [ ] **Admin UI reachable:** `cmd/reverb` started with `WithAdminUI()`
-      serves `/_admin` and the test-query box performs a real lookup.
+
+(The "admin UI reachable" check that previously lived here has moved to
+the Phase 2 spec covering roadmap §2.24.)
 
 ## How to verify
 
@@ -89,13 +90,14 @@ Expected output: round 1 logs `tier=miss`; round 2 logs
 sources=[...]`. Failure of round 3 to produce a semantic hit means the
 embedder integration regressed and blocks merge.
 
-**Cross-repo verification.** Each sibling repo (`reverb-python`,
-`reverb-js`, `reverb-ui`) runs its own CI against a containerized
+**Cross-repo verification.** Each sibling repo in scope for this spec
+(`reverb-python`, `reverb-js`) runs its own CI against a containerized
 `cmd/reverb` built from the merge candidate. The main-repo merge PR
 links to the green CI run on each sibling. If any sibling is red, merge
 the main-repo PR last (after the sibling fix), so a published 0.1.0 of
 `reverb` / `@reverb/client` is never broken against the main-repo
-release it targets.
+release it targets. (`reverb-ui` is out of scope for this spec — see
+roadmap §2.24.)
 
 **Docs spot-check.** Open `README.md`, `COMPATIBILITY.md`, and
 `CHANGELOG.md`. Search for the strings `not yet`, `TODO`, `known gap`,

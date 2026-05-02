@@ -38,11 +38,6 @@ In scope for this spec:
   into the server) with subcommands `stats`, `lookup`, `store`,
   `invalidate <source>`, `evict --namespace`, `warm <jsonl>`, `export`,
   `import`, `validate-config`. Talks HTTP or gRPC.
-- **1.5 Admin web UI at `/_admin`** — single-page UI surfaced by the
-  standalone binary. Hit-rate by namespace over time, top sources, entry
-  browser with filters, test-query box. **Lives in a sibling `reverb-ui`
-  repo** per `specs/tech-stack.md` §"Repository composition" (Go-only
-  main repo). The standalone binary embeds the built artifact.
 - **1.12 Documentation sweep** — README, COMPATIBILITY, CHANGELOG. Remove
   the "metrics HTTP server not yet wired" caveat (it is wired now via
   `WithMetricsOnMux` + `NewMetricsServer`). Audit and either close or
@@ -74,6 +69,12 @@ and bundling them into one spec would obscure the adoption-surface story.
 They retain their Phase 1 scheduling — the deferral is editorial within
 Phase 1, not a push to Phase 2.
 
+The admin web UI at `/_admin` (originally tracked here as 1.5) has been
+moved out of Phase 1 entirely. It now lives at roadmap §2.24, alongside
+the Grafana dashboards (§2.3) and Prometheus alerts (§2.4) it composes
+with. Phase 1 ships the operator CLI (1.4) as the standalone operator
+surface; the graphical layer follows in Phase 2.
+
 Also explicitly out of scope (per `specs/mission.md` §"Out of scope"):
 
 - A managed/hosted Reverb offering — sibling repos publish to PyPI and
@@ -90,16 +91,15 @@ Also explicitly out of scope (per `specs/mission.md` §"Out of scope"):
 
 - **JS/TS toolchains live in sibling repos.** Per `tech-stack.md`
   §"Repository composition" (constitutional row), the main `nobelk/reverb`
-  repo contains only Go source. Concretely:
+  repo contains only Go source. Concretely for this spec:
   - **`reverb-python`** — sibling repo for the Python SDK (1.2).
     Publishes the `reverb` package to PyPI.
   - **`reverb-js`** — sibling repo for the TypeScript SDK (1.3).
     Publishes `@reverb/client` to npm.
-  - **`reverb-ui`** — sibling repo for the admin UI (1.5). Builds a
-    static asset bundle that the main-repo standalone binary embeds via
-    `embed.FS` at build time. The UI source itself never lands in this
-    repo.
-  This preserves the `go build ./...`-only invariant for the main repo.
+
+  The same constitutional rule will govern `reverb-ui` (admin UI) when
+  that work lands in Phase 2 (roadmap §2.24); it is out of scope for
+  this spec.
 
 - **OpenAPI is the cross-language source of truth.** Both SDKs are
   generated from `openapi/v1.yaml` (via `openapi-generator` or equivalent),
@@ -116,5 +116,6 @@ Also explicitly out of scope (per `specs/mission.md` §"Out of scope"):
   constitutional); §"Public surface" (OpenAPI graduates to authoritative
   on 1.1 ship); §"Deployment shapes" (SDKs add only thin language-
   idiomatic sugar over the wire contract).
-- `specs/roadmap.md` — Phase 1 items 1.1–1.5, 1.12–1.14; Phase 1 exit
-  criteria; OKR table (5 non-Go production deployments target).
+- `specs/roadmap.md` — Phase 1 items 1.1–1.4, 1.12–1.14; Phase 1 exit
+  criteria; OKR table (5 non-Go production deployments target). The
+  admin UI originally listed as 1.5 has moved to §2.24.
