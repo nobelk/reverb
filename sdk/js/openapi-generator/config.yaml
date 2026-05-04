@@ -1,0 +1,28 @@
+# openapi-generator-cli config for the Reverb TypeScript wire client.
+#
+# Generates a typed fetch-based client from ../../openapi/v1.yaml. Output is
+# emitted under `src/_wire/` so the hand-rolled `ReverbClient` /
+# `cachedCompletion` surface in `src/index.ts` can re-export only the parts
+# that should be public.
+#
+# Until 0.2 the wire client is hand-written; this config exists so the
+# regeneration path is reproducible. Run via `make sdk-regen-js`.
+
+generatorName: typescript-fetch
+npmName: "@reverb/wire"
+npmVersion: 0.1.0-rc.0
+typescriptThreePlus: true
+
+additionalProperties:
+  supportsES6: true
+  withInterfaces: true
+  withoutRuntimeChecks: false
+  modelPropertyNaming: original
+  paramNaming: original
+  enumPropertyNaming: original
+
+globalProperties:
+  apiTests: false
+  modelTests: false
+  apiDocs: false
+  modelDocs: false

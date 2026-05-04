@@ -1,0 +1,530 @@
+openapi: 3.1.0
+info:
+  title: Reverb HTTP API
+  version: "1.0.0"
+  summary: Semantic response cache with knowledge-aware invalidation.
+  description: |
+    Reverb exposes a two-tier semantic response cache (exact + semantic) over a
+    versioned `/v1/` HTTP REST surface. This document is the authoritative
+    contract for that surface; the Go HTTP handlers in `pkg/server/http.go`
+    implement it, and the drift-check test in `pkg/server/openapi_drift_test.go`
+    asserts the two stay aligned.
+
+    ## Authentication
+
+    When the standalone server is started with an `auth.Authenticator`, every
+    endpoint except `/healthz`, `/readyz`, and `/metrics` requires a
+    `Authorization: Bearer <token>` header. Missing or invalid tokens return
+    `401 Unauthorized`.
+
+    ## Rate limiting
+
+    When a per-tenant rate limiter is configured, requests over the limit are
+    rejected with `429 Too Many Requests` and a `Retry-After` header carrying
+    the integer seconds the client should wait before retrying. `/healthz`,
+    `/readyz`, and `/metrics` are never throttled.
+
+    ## Versioning
+
+    Backwards-incompatible changes ship under a new path prefix (`/v2/`). Within
+    `/v1/` the contract is additive: new optional fields may appear, existing
+    fields will not be removed or have their types changed.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  contact:
+    name: Reverb maintainers
+    url: https://github.com/nobelk/reverb
+
+servers:
+  - url: http://localhost:8080
+    description: Local standalone server (default).
+  - url: https://{host}
+    description: Self-hosted deployment.
+    variables:
+      host:
+        default: reverb.example.com
+
+security:
+  - bearerAuth: []
+  - {}
+
+tags:
+  - name: cache
+    description: Cache read/write operations.
+  - name: lineage
+    description: Source-driven invalidation.
+  - name: ops
+    description: Stats, health, readiness, metrics.
+
+paths:
+  /v1/lookup:
+    post:
+      tags: [cache]
+      summary: Look up a cached response for a prompt.
+      description: |
+        Performs an exact-match check first (SHA-256 of the normalized prompt),
+        then a semantic-similarity search if the exact tier misses. Returns
+        `hit=false` when both tiers miss; the caller is then expected to invoke
+        the upstream model and store the response via `POST /v1/store`.
+      operationId: lookup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LookupRequest"
+      responses:
+        "200":
+          description: Lookup completed (hit or miss; check the `hit` field).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LookupResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/store:
+    post:
+      tags: [cache]
+      summary: Store a response in the cache.
+      description: |
+        Persists a prompt/response pair plus optional source lineage. The entry
+        is added to both the exact-match tier and the semantic tier (an
+        embedding is computed via the configured provider).
+      operationId: store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreRequest"
+      responses:
+        "201":
+          description: Entry stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/invalidate:
+    post:
+      tags: [lineage]
+      summary: Invalidate every entry derived from a source.
+      description: |
+        Removes all cache entries whose lineage references `source_id`. This is
+        the entry point used by CDC listeners when a source document changes
+        upstream.
+      operationId: invalidate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvalidateRequest"
+      responses:
+        "200":
+          description: Invalidation completed (count may be zero).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvalidateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/entries/{id}:
+    delete:
+      tags: [cache]
+      summary: Delete a single cache entry.
+      description: |
+        Removes the entry from both the persistence store and the vector index.
+        Under tenant-scoped auth, returns `404` if the entry does not belong to
+        the requesting tenant (without revealing which case it is).
+      operationId: deleteEntry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The entry ID returned by `POST /v1/store`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Entry deleted (no body).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/stats:
+    get:
+      tags: [ops]
+      summary: Cache statistics.
+      description: |
+        Returns counters and the namespace list. Under tenant-scoped auth, the
+        response is filtered to namespaces owned by the requesting tenant and
+        `total_entries` is recomputed against that subset.
+      operationId: getStats
+      responses:
+        "200":
+          description: Stats snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /healthz:
+    get:
+      tags: [ops]
+      summary: Liveness probe.
+      description: Always 200 if the process is up. Never gated by auth or rate-limiting.
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /readyz:
+    get:
+      tags: [ops]
+      summary: Readiness probe.
+      description: |
+        Runs every registered readiness check with a 2s deadline. Returns 200
+        only when all succeed. Never gated by auth or rate-limiting.
+      operationId: readyz
+      security: []
+      responses:
+        "200":
+          description: All readiness checks passed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: One or more readiness checks failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  /metrics:
+    get:
+      tags: [ops]
+      summary: Prometheus metrics.
+      description: |
+        Exposed only when the server is started with `WithMetricsOnMux`. Format
+        is the Prometheus text exposition format. Never gated by auth or
+        rate-limiting.
+      operationId: metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Opaque bearer token issued by the operator. Reverb does not issue tokens
+        itself; the server is configured with an `auth.Authenticator` that
+        validates tokens out-of-band.
+
+  headers:
+    RetryAfter:
+      description: Integer seconds the client should wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: Malformed request (invalid JSON, missing required field, bad content_hash).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource does not exist or is not visible to the caller.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Per-tenant rate limit exceeded.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Unhandled server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    LookupRequest:
+      type: object
+      required: [namespace, prompt]
+      properties:
+        namespace:
+          type: string
+          description: Logical partition. Required.
+          example: support-bot
+        prompt:
+          type: string
+          description: Raw prompt text. Required. Normalized server-side.
+          example: How do I reset my password?
+        model_id:
+          type: string
+          description: Model identifier. When `scope_by_model` is true, restricts semantic matches to the same model.
+          example: gpt-4o
+
+    LookupResponse:
+      type: object
+      required: [hit]
+      properties:
+        hit:
+          type: boolean
+          description: True iff either tier returned a match.
+        tier:
+          type: string
+          description: Which tier produced the hit. Empty on miss.
+          enum: [exact, semantic]
+        similarity:
+          type: number
+          format: float
+          description: Cosine similarity for semantic hits. Omitted on exact hits and misses.
+          minimum: 0
+          maximum: 1
+        entry:
+          $ref: "#/components/schemas/CacheEntry"
+
+    StoreRequest:
+      type: object
+      required: [namespace, prompt, response]
+      properties:
+        namespace:
+          type: string
+          description: Logical partition. Required.
+        prompt:
+          type: string
+          description: Raw prompt text. Required.
+        model_id:
+          type: string
+          description: Model identifier (recommended).
+        response:
+          type: string
+          description: The model's response text. Required.
+        response_meta:
+          type: object
+          description: Free-form metadata attached to the entry.
+          additionalProperties:
+            type: string
+        sources:
+          type: array
+          description: Source-document lineage. Drives invalidation when sources change.
+          items:
+            $ref: "#/components/schemas/SourceRef"
+        ttl_seconds:
+          type: integer
+          minimum: 0
+          description: Override the default TTL. Zero or omitted uses the server default.
+
+    StoreResponse:
+      type: object
+      required: [id, created_at]
+      properties:
+        id:
+          type: string
+          description: Server-assigned entry ID (UUID).
+        created_at:
+          type: string
+          format: date-time
+
+    InvalidateRequest:
+      type: object
+      required: [source_id]
+      properties:
+        source_id:
+          type: string
+          description: The source document whose dependents should be invalidated.
+
+    InvalidateResponse:
+      type: object
+      required: [invalidated_count]
+      properties:
+        invalidated_count:
+          type: integer
+          minimum: 0
+          description: Number of cache entries removed.
+
+    StatsResponse:
+      type: object
+      required:
+        - total_entries
+        - namespaces
+        - exact_hits_total
+        - semantic_hits_total
+        - misses_total
+        - invalidations_total
+        - hit_rate
+      properties:
+        total_entries:
+          type: integer
+          format: int64
+          minimum: 0
+        namespaces:
+          type: array
+          items:
+            type: string
+        exact_hits_total:
+          type: integer
+          format: int64
+          minimum: 0
+        semantic_hits_total:
+          type: integer
+          format: int64
+          minimum: 0
+        misses_total:
+          type: integer
+          format: int64
+          minimum: 0
+        invalidations_total:
+          type: integer
+          format: int64
+          minimum: 0
+        hit_rate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+
+    CacheEntry:
+      type: object
+      required: [id, created_at, namespace, prompt, model_id, response, hit_count]
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: Omitted when the entry has no TTL.
+        namespace:
+          type: string
+        prompt:
+          type: string
+          description: The stored (un-normalized) prompt text.
+        model_id:
+          type: string
+        response:
+          type: string
+        response_meta:
+          type: object
+          additionalProperties:
+            type: string
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceRef"
+        hit_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of times this entry has been served as a hit.
+
+    SourceRef:
+      type: object
+      required: [source_id, content_hash]
+      properties:
+        source_id:
+          type: string
+          description: Stable identifier for the source document.
+        content_hash:
+          type: string
+          description: SHA-256 of the source content, hex-encoded (lowercase, no `0x` prefix). 64 hex chars.
+          pattern: "^[0-9a-f]{64}$"
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        checks:
+          type: object
+          description: Per-check failure messages. Present only when `status=not_ready`.
+          additionalProperties:
+            type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message. Stable enough to log; not stable enough to programmatically match on.

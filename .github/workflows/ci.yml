@@ -23,6 +23,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+  lint-docs:
+    name: Lint Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint user-facing docs for stale claims
+        run: make lint-docs
+
   test:
     name: Unit Tests
     runs-on: ubuntu-latest

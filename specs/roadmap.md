@@ -51,12 +51,6 @@ The library is solid; the surface around it is thin. Phase 1 closes the highest-
 - **What:** A separate binary (not bundled into the server) with subcommands `stats`, `lookup`, `store`, `invalidate <source>`, `evict --namespace`, `warm <jsonl>`, `export`, `import`, `validate-config`. Talks HTTP or gRPC.
 - **Why:** Operators today must `curl` the API or write Go code. A CLI is the minimum operator UX.
 
-### 1.5 Admin web UI at `/_admin`
-
-- **What:** Single-page UI embedded in the standalone binary. Surfaces hit-rate by namespace over time, top sources by entry count, an entry browser with filters, and a test-query box that runs a lookup and shows tier + similarity + lineage.
-- **Why:** Demos, debugging, and on-call workflows all benefit. Today there is no graphical surface.
-- **Constraint:** If adding a JS/TS toolchain to the main repo is rejected, this lives in a sibling `reverb-ui` repo to preserve the Go-only repo invariant in `tech-stack.md`.
-
 ### 1.6 Streaming response support
 
 - **What:** Add `chunks []ResponseChunk` (delta + finish_reason) alongside `ResponseText`. New endpoint `POST /v1/lookup-stream` returns SSE if cached.
@@ -107,7 +101,7 @@ The library is solid; the surface around it is thin. Phase 1 closes the highest-
 ### Phase 1 exit criteria
 
 - Python and TypeScript SDKs published; OpenAPI spec on GitHub Pages.
-- `reverb-cli` and admin UI shipped.
+- `reverb-cli` shipped. (Admin UI moved to Phase 2 — see §2.24.)
 - Streaming, reverse-proxy, re-ranker, and singleflight available behind opt-in flags or new APIs.
 - pgvector backend merged with conformance compliance.
 - All "known gaps" called out in current docs are either fixed or explicitly removed from the doc.
@@ -235,8 +229,16 @@ Phase 1 made Reverb adoptable. Phase 2 makes it the obvious choice over GPTCache
 ### 2.23 `reverb explain <entry-id>` debugging command
 
 - **What:** New `reverb-cli` subcommand that prints, for a given entry: its lineage tree (sources and their content hashes), the store/lookup history (created-at, hits, last-hit-at, last-invalidation-cause), the embedding-tier metadata (provider, model, dimension, `EmbeddingMissing` flag), and any per-namespace config that applied at lookup time.
-- **Why:** Pairs with the dashboards in 2.3 and the alerts in 2.4 — when an alert fires or a dashboard shows an anomaly, an operator needs an entry-level "why was this returned?" view. The admin UI's test-query box (1.5) shows tier + similarity + lineage for a *new* lookup; this is the equivalent for an *existing* entry that's already in the cache.
+- **Why:** Pairs with the dashboards in 2.3 and the alerts in 2.4 — when an alert fires or a dashboard shows an anomaly, an operator needs an entry-level "why was this returned?" view. The admin UI's test-query box (2.24) shows tier + similarity + lineage for a *new* lookup; this is the equivalent for an *existing* entry that's already in the cache.
 - **Depends on:** 1.4.
+
+### 2.24 Admin web UI at `/_admin`
+
+- **What:** Single-page UI surfaced by the standalone binary. Hit-rate by namespace over time, top sources by entry count, an entry browser with filters, and a test-query box that runs a `lookup` and shows tier + similarity + lineage.
+- **Why:** Demos, debugging, and on-call workflows all benefit. A graphical surface complements the dashboards in 2.3 and the alerts in 2.4 — the UI is where an on-call jumps after the alert fires and the dashboard narrows the suspect namespace.
+- **Constraint:** Lives in a sibling `reverb-ui` repo to preserve the Go-only main-repo invariant in `tech-stack.md` §"Repository composition". The main-repo standalone binary embeds the built static asset bundle via `embed.FS` and exposes it behind a `WithAdminUI()` option that ships disabled-by-default per `mission.md` principle 4.
+- **Sequencing note:** Originally listed as 1.5 in this roadmap; deferred to Phase 2 in the spec at `specs/2026-04-30-adoption-surface/`. The CLI (1.4) ships in Phase 1 alone; the graphical surface follows once dashboards (2.3) and alerts (2.4) give it neighboring tools to compose with.
+- **Depends on:** 1.1 (OpenAPI contract that the UI calls).
 
 - Reverb integrates with LangChain, LlamaIndex, and LiteLLM via published adapters.
 - Operators inherit dashboards and alerts; no Grafana boards are hand-rolled.

@@ -1,0 +1,27 @@
+# openapi-generator-cli config for the Reverb Python wire client.
+#
+# Generates a typed httpx-based client from ../../openapi/v1.yaml. The
+# generated package is placed under `reverb/_wire/` so that the hand-rolled
+# `reverb.Reverb` / `reverb.cached_completion` surface in `reverb/__init__.py`
+# can re-export the parts that should be public.
+#
+# Until 0.2 the wire client is hand-written; this config exists so the
+# regeneration path is reproducible. Run via `make sdk-regen-python`.
+
+generatorName: python
+packageName: reverb._wire
+packageVersion: 0.1.0rc0
+projectName: reverb-wire
+library: httpx
+
+additionalProperties:
+  generateSourceCodeOnly: true
+  hideGenerationTimestamp: true
+  packageUrl: https://github.com/nobelk/reverb
+  useOneOfDiscriminatorLookup: true
+
+globalProperties:
+  apiTests: false
+  modelTests: false
+  apiDocs: false
+  modelDocs: false

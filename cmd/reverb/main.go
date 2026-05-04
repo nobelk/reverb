@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -45,6 +44,7 @@ import (
 func main() {
 	httpAddr := flag.String("http-addr", ":8080", "HTTP listen address")
 	configPath := flag.String("config", "", "Path to YAML config file")
+	validate := flag.Bool("validate", false, "Validate config and construct the engine, then exit. Does not bind listeners or call the embedder. Exits 0 on success, non-zero with a structured JSON error report on failure.")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -64,12 +64,29 @@ func main() {
 		}
 	}
 
-	applyEnvOverrides(&cfg)
+	cfg.ApplyEnvOverrides()
 	cfg.ApplyDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
+	}
+
+	if *validate {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := validateEngine(ctx, cfg); err != nil {
+			logger.Error("validation failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("validation ok",
+			"store_backend", cfg.Store.Backend,
+			"embedding_provider", cfg.Embedding.Provider,
+			"vector_backend", cfg.Vector.Backend,
+			"auth_enabled", cfg.Auth.Enabled,
+			"cdc_enabled", cfg.CDC.Enabled,
+		)
+		return
 	}
 
 	// Initialize OpenTelemetry tracing
@@ -265,47 +282,6 @@ func storeReadiness(s store.Store) server.ReadinessChecker {
 	}
 }
 
-// applyEnvOverrides applies environment variable overrides to cfg.
-func applyEnvOverrides(cfg *reverb.Config) {
-	if v := os.Getenv("REVERB_DEFAULT_TTL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.DefaultTTL = d
-		}
-	}
-	if v := os.Getenv("REVERB_SIMILARITY_THRESHOLD"); v != "" {
-		if f, err := strconv.ParseFloat(v, 32); err == nil {
-			cfg.SimilarityThreshold = float32(f)
-		}
-	}
-	if v := os.Getenv("REVERB_EMBEDDING_API_KEY"); v != "" {
-		cfg.Embedding.APIKey = v
-	}
-	if v := os.Getenv("REVERB_REDIS_PASSWORD"); v != "" {
-		cfg.Store.RedisPassword = v
-	}
-	if v := os.Getenv("REVERB_OTEL_ENABLED"); v == "true" || v == "1" {
-		cfg.OTel.Enabled = true
-	}
-	if v := os.Getenv("REVERB_OTEL_ENDPOINT"); v != "" {
-		cfg.OTel.Endpoint = v
-	}
-	if v := os.Getenv("REVERB_OTEL_SERVICE_NAME"); v != "" {
-		cfg.OTel.ServiceName = v
-	}
-	if v := os.Getenv("REVERB_OTEL_INSECURE"); v == "true" || v == "1" {
-		cfg.OTel.Insecure = true
-	}
-	if v := os.Getenv("REVERB_AUTH_ENABLED"); v == "true" || v == "1" {
-		cfg.Auth.Enabled = true
-	}
-	if v := os.Getenv("REVERB_AUTH_API_KEY"); v != "" {
-		cfg.Auth.Enabled = true
-		cfg.Auth.Tenants = append(cfg.Auth.Tenants, reverb.Tenant{
-			ID: "default", Name: "Default", APIKeys: []string{v},
-		})
-	}
-}
-
 // newStore creates a store.Store based on cfg.Store.Backend.
 func newStore(cfg reverb.Config) (store.Store, error) {
 	switch cfg.Store.Backend {
@@ -417,6 +393,56 @@ func initTracer(ctx context.Context, cfg reverb.Config) (func(context.Context) e
 	otel.SetTracerProvider(tp)
 
 	return tp.Shutdown, nil
+}
+
+// validateEngine constructs the full engine (store, embedder, vector index,
+// reverb client, authenticator) without binding any network listeners. It
+// powers the `--validate` flag: an operator can prove the config wires up to
+// a working engine before promoting it to production.
+//
+// Per Phase 1 spec: this path skips the embedder Embed call. A missing API
+// key or unreachable embedding endpoint will not be surfaced here. Store
+// connectivity *is* exercised via Stats(), so unreachable Redis or a
+// malformed Badger directory will fail fast.
+func validateEngine(ctx context.Context, cfg reverb.Config) error {
+	s, err := newStore(cfg)
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+
+	embedder, err := newEmbedder(cfg)
+	if err != nil {
+		return fmt.Errorf("embedder: %w", err)
+	}
+
+	vi, err := newVectorIndex(cfg)
+	if err != nil {
+		return fmt.Errorf("vector index: %w", err)
+	}
+
+	promRegistry := prometheus.NewRegistry()
+	promCollector, err := metrics.NewPrometheusCollector(promRegistry)
+	if err != nil {
+		return fmt.Errorf("metrics: %w", err)
+	}
+
+	client, err := reverb.New(cfg, embedder, s, vi, reverb.WithPrometheusCollector(promCollector))
+	if err != nil {
+		return fmt.Errorf("client: %w", err)
+	}
+	defer client.Close()
+
+	if cfg.Auth.Enabled {
+		if _, err := auth.NewAuthenticator(cfg.Auth); err != nil {
+			return fmt.Errorf("auth: %w", err)
+		}
+	}
+
+	if _, err := client.Stats(ctx); err != nil {
+		return fmt.Errorf("store readiness: %w", err)
+	}
+
+	return nil
 }
 
 // newCDCListener creates a cdc.Listener based on cfg.CDC.Mode.

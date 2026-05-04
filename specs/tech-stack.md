@@ -9,7 +9,7 @@ For the live dependency list, read `go.mod`; this file describes the policies th
 | Concern | Choice | Status | Notes |
 |---|---|---|---|
 | Implementation language | Go | **Constitutional** | Load-bearing for performance and single-binary deploy. Migrating off Go is explicitly out of scope per `mission.md`. |
-| Repository composition | Go-only main repo | **Constitutional** | The main `nobelk/reverb` repository contains only Go source. Non-Go toolchains (JS/TS for the admin UI in `roadmap.md` 1.5, Python/TS SDKs in 1.2/1.3, dashboards JSON, etc.) live in sibling repos so the main repo stays buildable with `go build ./...` alone. |
+| Repository composition | Go-only main repo | **Constitutional** | The main `nobelk/reverb` repository contains only Go source. Non-Go toolchains (JS/TS for the admin UI in `roadmap.md` 2.24, Python/TS SDKs in 1.2/1.3, dashboards JSON, etc.) live in sibling repos so the main repo stays buildable with `go build ./...` alone. |
 | Minimum Go version | 1.25 | Incidental | Floor moves forward with Go releases; the project tracks the two most recent stable Go versions. |
 | CGO | Not required in the core | **Constitutional** | The core library and standalone binary build with `CGO_ENABLED=0`. CGO-dependent features (e.g., ONNX-runtime re-rankers) ship behind a build tag and are opt-in. |
 | Concurrency model | Standard `context.Context` propagation, goroutines, channels | Constitutional | All public APIs accept `context.Context` as the first argument. Cancellation must be honored. |
@@ -19,7 +19,7 @@ For the live dependency list, read `go.mod`; this file describes the policies th
 | Surface | Contract | Status |
 |---|---|---|
 | Go library | `pkg/reverb` and other packages under `pkg/` | **Constitutional** — semver-governed; breaking changes require a major version. |
-| HTTP REST | Versioned under `/v1/`. The OpenAPI 3.1 spec becomes the source of truth on publication (`roadmap.md` 1.1); until then, the Go handler implementation is authoritative. | **Constitutional** — the `/v1/` path prefix and additive-only evolution rules apply now; the OpenAPI artifact graduates to authoritative on 1.1 ship. |
+| HTTP REST | Versioned under `/v1/`. `openapi/v1.yaml` is the authoritative source of truth (rendered at https://nobelk.github.io/reverb/). The drift-check test in `pkg/server/openapi_drift_test.go` enforces handler↔spec alignment on every build. | **Constitutional** — the `/v1/` path prefix, additive-only evolution rules, and the OpenAPI artifact's authoritative status all apply. |
 | gRPC | `pkg/server/proto/reverb.proto`, service `reverb.v1.ReverbService` | **Constitutional** — proto evolution rules apply (no field renumbering, no removed fields within a major). |
 | MCP JSON-RPC | `pkg/server/mcp` | Beta-track; not yet under the same stability promise. Graduation criteria are listed explicitly in `roadmap.md` item 2.21. |
 | `internal/` packages | Private | No stability promise. Used precisely so the core can keep moving. |
