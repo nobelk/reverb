@@ -1,4 +1,4 @@
-.PHONY: build build-cli test test-unit test-integration test-all lint bench bench-quality bench-baseline docker docker-cli docker-test clean proto-gen \
+.PHONY: build build-cli test test-unit test-integration test-all lint lint-docs bench bench-quality bench-baseline docker docker-cli docker-test clean proto-gen \
         run-server sdk-regen-python sdk-regen-js sdk-smoke-python sdk-smoke-js
 
 # --- Build ---
@@ -51,8 +51,18 @@ docker-test: test-all
 test: test-unit
 
 # --- Linting ---
-lint:
+lint: lint-docs
 	golangci-lint run ./...
+
+# --- Doc lint ---
+# Greps the user-facing docs for forbidden strings that signal stale claims
+# ("not yet wired", "TODO", "known gap") or unstable-tier language outside
+# the MCP block. The MCP surface is the only place "experimental" is allowed
+# pre-1.0, per COMPATIBILITY.md §Transport Stability — the per-line filter
+# below drops MCP-context lines so the legitimate mentions don't trip the
+# guard. Run from `make lint`; CI runs it as a standalone job too.
+lint-docs:
+	@scripts/lint-docs.sh
 
 # --- Benchmarks ---
 bench:

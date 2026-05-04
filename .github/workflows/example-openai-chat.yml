@@ -1,0 +1,75 @@
+name: Example openai-chat (offline)
+
+# Runs the openai-chat example end-to-end against a containerized Ollama
+# with a small embedding model. The example exits non-zero unless its
+# third round (paraphrased prompt) produces a tier=semantic hit, so a
+# regression in the embedder integration breaks this job before it can
+# break a release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/openai-chat/**"
+      - "pkg/embedding/**"
+      - "pkg/cache/semantic/**"
+      - "pkg/reverb/**"
+      - ".github/workflows/example-openai-chat.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "examples/openai-chat/**"
+      - "pkg/embedding/**"
+      - "pkg/cache/semantic/**"
+      - "pkg/reverb/**"
+      - ".github/workflows/example-openai-chat.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: Run against Ollama
+    runs-on: ubuntu-latest
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Wait for Ollama daemon
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:11434/api/version > /dev/null; then
+              echo "ollama: up"; exit 0
+            fi
+            echo "ollama: waiting ($i)"; sleep 2
+          done
+          echo "ollama: never came up" >&2; exit 1
+
+      - name: Pull embedding model
+        # `nomic-embed-text` is ~270MB; small enough for CI but large enough
+        # to give meaningful semantic similarity on paraphrases. The pull
+        # populates the daemon's model cache so the example's first call
+        # doesn't time out on download.
+        run: |
+          curl -sf -X POST http://localhost:11434/api/pull \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"nomic-embed-text","stream":false}' \
+            | tee /tmp/pull.json
+          grep -q '"status":"success"' /tmp/pull.json
+
+      - name: Run openai-chat example
+        env:
+          OLLAMA_HOST: http://localhost:11434
+          OLLAMA_EMBED_MODEL: nomic-embed-text
+        # --threshold is set conservatively (0.80) because nomic-embed-text
+        # paraphrase scores cluster in the 0.85-0.92 range; tighter
+        # thresholds lead to flaky CI without buying real signal.
+        run: go run ./examples/openai-chat --provider=ollama --threshold=0.80

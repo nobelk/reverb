@@ -227,7 +227,7 @@ Tier 2 and may be retuned in MINOR releases if we find better defaults.
 | Component | Status | Notes |
 |---|---|---|
 | Auth (`pkg/auth`) | **Beta** | Bearer token (HTTP) and API key (gRPC). Multi-tenant scoping settled but may gain more options. |
-| Metrics (`pkg/metrics`) | **Beta** | Prometheus + OTel tracing wired. Metrics HTTP server in the standalone binary is not yet started — tracked as a known gap. |
+| Metrics (`pkg/metrics`) | **Beta** | Prometheus + OTel tracing wired. The standalone binary serves `/metrics` on the main HTTP mux by default and supports a dedicated metrics listener via `metrics.addr`. |
 
 ## Deprecation Policy
 
@@ -259,8 +259,12 @@ have adopted the feature. This will always be explicit in the CHANGELOG entry.
 Before rolling a new Reverb version to production, we recommend:
 
 1. Diff the [CHANGELOG](CHANGELOG.md) from your current version to the target.
-2. Re-run your config through `cmd/reverb --config ... --validate` (planned —
-   until then, start the server in a staging environment and confirm it boots).
+2. Re-run your config through `reverb --config <path> --validate`. The flag
+   wires the full engine (store, embedder, vector index, client, auth) and
+   exercises store connectivity, then exits zero. It does not bind any
+   network listeners and does not call the embedding provider, so it is
+   safe to run against a production config without paging users or
+   consuming embedder quota.
 3. Replay a sample of production traffic through a staging replica and confirm
    hit rates and latency are unchanged. Reverb's cache semantics are behavioral
    as well as structural — a change in normalization or similarity threshold

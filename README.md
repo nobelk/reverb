@@ -228,7 +228,7 @@ All backends are pluggable via interfaces:
 
 ## Examples
 
-The `examples/` directory contains self-contained programs that demonstrate how to integrate reverb into your own project. The `basic` and `semantic-cache` examples run with zero external dependencies; `stale-knowledge` requires Redis (provided via Docker Compose).
+The `examples/` directory contains self-contained programs that demonstrate how to integrate reverb into your own project. The `basic` and `semantic-cache` examples run with zero external dependencies; `stale-knowledge` requires Redis (provided via Docker Compose); `openai-chat` requires either an `OPENAI_API_KEY` or a reachable Ollama daemon.
 
 ### Basic Usage (`examples/basic/`)
 
@@ -266,6 +266,29 @@ go run ./examples/semantic-cache
 # Run in Docker
 docker compose -f examples/semantic-cache/docker-compose.yml up --build
 ```
+
+### OpenAI / Ollama paraphrase demo (`examples/openai-chat/`)
+
+The only example wired to a **real** embedder, so it can demonstrate
+`tier=semantic` hits on paraphrases — the property the other examples
+cannot show because they use the deterministic `fake` embedder. Three
+rounds: cold miss, exact hit, and a semantic hit on a paraphrased prompt.
+Pick a provider with `--provider=openai|ollama`. CI runs the offline
+(Ollama) variant on every PR; the third round must be a semantic hit or
+the build fails.
+
+```bash
+# Real OpenAI
+OPENAI_API_KEY=sk-… go run ./examples/openai-chat --provider=openai
+
+# Local Ollama (offline)
+ollama serve & ollama pull nomic-embed-text
+go run ./examples/openai-chat --provider=ollama
+```
+
+See [`examples/openai-chat/README.md`](examples/openai-chat/README.md) for
+expected output and a longer explanation of why round 3 is the interesting
+one.
 
 ### Stale Knowledge Prevention (`examples/stale-knowledge/`)
 
@@ -426,10 +449,13 @@ cdc:
   nats_url: "nats://localhost:4222"
   nats_subject: "reverb.changes"
 
-# Metrics (not yet wired into the standalone binary)
+# Metrics. When `addr` is empty (default), Prometheus is exposed on the main
+# HTTP mux at /metrics and is bypassed by auth middleware. Set `addr` to a
+# separate listener (e.g., ":9100") to gate scrapes behind an internal-only
+# interface.
 metrics:
   enabled: false
-  addr: ":9100"
+  addr: ""
 ```
 
 ### Environment Variable Overrides
@@ -447,7 +473,7 @@ metrics:
 
 A sample environment file is provided at [`.env.example`](.env.example) — copy it to `.env` and edit as needed.
 
-> **Note:** The `metrics` section is defined in the configuration schema (`pkg/reverb/config.go`) but the metrics HTTP server is not yet started by the standalone binary. The container `Dockerfile` exposes port `9100` in anticipation of this feature.
+> **Note:** The `metrics` section controls how Prometheus is exposed. With the default empty `metrics.addr`, `/metrics` is mounted on the main HTTP listener and bypasses auth so scrapers don't need credentials. Setting `metrics.addr` (e.g., `":9100"`) starts a dedicated listener — useful for binding the scrape endpoint to an internal-only interface. The container `Dockerfile` exposes port `9100` for that use.
 
 ## Dependencies
 

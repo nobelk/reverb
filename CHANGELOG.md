@@ -24,6 +24,16 @@ Section conventions:
 
 ### Added
 
+- `reverb --validate` flag. Constructs the engine (store, embedder, vector
+  index, client, auth) without binding listeners or calling the embedding
+  provider, and exercises store connectivity via `Stats()`. Exits zero on
+  success; non-zero with a structured slog error report on failure. The
+  upgrade-testing checklist in [COMPATIBILITY.md](COMPATIBILITY.md#upgrade-testing-checklist)
+  references this flow.
+- `examples/openai-chat/`. Self-contained, runnable demonstration of
+  Reverb in front of either OpenAI or Ollama: cold miss, exact hit, and
+  semantic hit on a paraphrased prompt, with similarity and source
+  lineage printed.
 - `reverb.WithRebuildVectorIndex(bool)` option and
   `store.rebuild_vector_index_on_startup` YAML knob. When enabled, `reverb.New`
   scans the configured store at boot and re-adds every non-expired entry's
@@ -101,9 +111,7 @@ backend surface that Reverb is willing to support under the
 
 ### Added
 
-- MCP (Model Context Protocol) JSON-RPC wrapper at `pkg/server/mcp`. Marked
-  **experimental** per [COMPATIBILITY.md](COMPATIBILITY.md#transport-stability)
-  — tool surface may change without a deprecation window.
+- MCP (Model Context Protocol) JSON-RPC wrapper at `pkg/server/mcp` — marked **experimental** in [COMPATIBILITY.md](COMPATIBILITY.md#transport-stability); the tool surface may change without a deprecation window.
 - Auth and multi-tenant scoping (`pkg/auth`) with bearer token on HTTP and
   API-key metadata on gRPC. Marked **beta**.
 - OpenTelemetry tracing and Prometheus metrics (`pkg/metrics`).
@@ -145,11 +153,7 @@ backend surface that Reverb is willing to support under the
 
 ### Known gaps
 
-- The `metrics` HTTP server is not yet started by `cmd/reverb`, though
-  port `9100` is exposed in the container image and the `metrics` config
-  section is parsed.
-- The `--validate` flag referenced in [COMPATIBILITY.md](COMPATIBILITY.md#upgrade-testing-checklist)
-  is not yet implemented.
+(None.)
 
 ---
 
