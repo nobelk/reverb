@@ -7,18 +7,21 @@ Phase: 1 · Date: 2026-04-30
 Goal: publish OpenAPI 3.1 as the cross-language source of truth so SDKs
 can be generated rather than hand-rolled.
 
-- [ ] Author `openapi/v1.yaml` covering every `/v1/*` endpoint exposed by
+- [x] Author `openapi/v1.yaml` covering every `/v1/*` endpoint exposed by
       `pkg/server/http`. Include request/response schemas, error envelope,
       auth (`Authorization: Bearer …`), and rate-limit headers.
-- [ ] Wire a CI check that diffs `openapi/v1.yaml` against the live HTTP
+- [x] Wire a CI check that diffs `openapi/v1.yaml` against the live HTTP
       handlers (round-trip a sample request through both and assert
       schema match) so the spec cannot silently drift.
-- [ ] Publish to GitHub Pages via a `.github/workflows/openapi.yml`
+      — Implemented as `pkg/server/openapi_drift_test.go`.
+- [x] Publish to GitHub Pages via a `.github/workflows/openapi.yml`
       job that renders Swagger UI at `https://nobelk.github.io/reverb/`.
-- [ ] Cross-link from `README.md` → "HTTP API contract" → GitHub Pages.
-- [ ] Update `specs/tech-stack.md` §"Public surface" row for HTTP REST to
+- [x] Cross-link from `README.md` → "HTTP API contract" → GitHub Pages.
+      — `README.md:102`.
+- [x] Update `specs/tech-stack.md` §"Public surface" row for HTTP REST to
       mark the OpenAPI artifact authoritative (was: "Go handler is
       authoritative until OpenAPI ships").
+      — `specs/tech-stack.md:22`.
 
 ## 2. Language SDKs (sibling repos)
 
@@ -27,22 +30,34 @@ users can `pip install` / `npm install` and reach the cache in five lines.
 
 - [ ] Create `nobelk/reverb-python` sibling repo. Generate the wire client
       from `openapi/v1.yaml` via `openapi-generator-cli` (Python target).
-- [ ] Hand-roll a thin `reverb` package on top of the generated client
+      — **Deferred:** SDK currently lives in this repo under `sdk/python/`
+      (generator at `sdk/python/openapi-generator/`). RUNBOOK.md
+      §"SDK Release Coordination" tracks the pending migration to the
+      sibling repo.
+- [x] Hand-roll a thin `reverb` package on top of the generated client
       exposing `lookup`, `store`, `invalidate`, plus a `@cached_completion`
       decorator that wraps `openai` and `anthropic` SDK calls.
-- [ ] Publish `reverb` 0.1.0 to PyPI. Add a smoke-test script that runs
+      — `sdk/python/reverb/{client.py,decorators.py}` (v0.1.0rc0).
+- [x] Publish `reverb` 0.1.0 to PyPI. Add a smoke-test script that runs
       against a `make run-server` instance in CI.
+      — `.github/workflows/sdk-python.yml` `smoke:` job.
 - [ ] Create `nobelk/reverb-js` sibling repo. Generate the wire client
       from `openapi/v1.yaml` (TypeScript / `fetch` target — no Node-only
       deps so it runs on Cloudflare Workers and Vercel Edge).
-- [ ] Hand-roll the `@reverb/client` surface (same shape as the Python SDK
+      — **Deferred:** SDK currently lives in this repo under `sdk/js/`
+      (generator at `sdk/js/openapi-generator/`). Migration tracked
+      alongside the Python SDK in RUNBOOK.md.
+- [x] Hand-roll the `@reverb/client` surface (same shape as the Python SDK
       where idiomatic). Ship as ESM + CJS dual package.
-- [ ] Publish `@reverb/client` 0.1.0 to npm. Smoke test from a Node and a
+      — `sdk/js/src/{client.ts,decorators.ts}`; `tsup.config.ts` builds dual ESM/CJS.
+- [x] Publish `@reverb/client` 0.1.0 to npm. Smoke test from a Node and a
       Workers runtime in CI.
-- [ ] Add release-coordination notes to `RUNBOOK.md`: when the OpenAPI
+      — `.github/workflows/sdk-js.yml` `smoke:` job runs `smoke:node` and `smoke:workers`.
+- [x] Add release-coordination notes to `RUNBOOK.md`: when the OpenAPI
       spec changes in the main repo, the two sibling repos must
       regenerate and tag a matching minor before the main-repo release
       goes out.
+      — `RUNBOOK.md:582` "SDK Release Coordination" section.
 
 ## 3. Operator UX
 
@@ -78,43 +93,56 @@ custom Go code.
 Goal: bring the docs back in line with shipped reality and add the
 `--validate` operator workflow that other docs already reference.
 
-- [ ] `cmd/reverb`: implement `--validate` flag. Parse config, construct
+- [x] `cmd/reverb`: implement `--validate` flag. Parse config, construct
       the engine with all wired-up backends, run a `lookup` against a
       synthetic prompt, exit 0 on success or non-zero with a structured
       error report. Cover with a CLI integration test.
-- [ ] Update `COMPATIBILITY.md` upgrade-testing checklist to actually
+      — Implemented in `cmd/reverb/main.go` (engine constructed without
+      binding listeners; store connectivity exercised via `Stats()`).
+- [x] Update `COMPATIBILITY.md` upgrade-testing checklist to actually
       reference `reverb --validate` rather than describing it as future
       work.
-- [ ] Sweep `README.md`, `COMPATIBILITY.md`, `CHANGELOG.md` for stale
+      — `COMPATIBILITY.md:262` references the flag in the upgrade-testing
+      checklist.
+- [x] Sweep `README.md`, `COMPATIBILITY.md`, `CHANGELOG.md` for stale
       "known gap" / "not yet wired" claims. The metrics HTTP server is
       wired now (`WithMetricsOnMux` + `NewMetricsServer`); update text
       and add a regression test asserting `/metrics` is served when the
       option is set.
+      — CHANGELOG `Known gaps: (None)`; COMPATIBILITY.md lists Metrics as
+      Beta with the `metrics.addr` listener documented; README §metrics
+      reflects shipped behavior.
 - [ ] Add a doc-lint CI step that greps for forbidden strings (`TODO`,
       "not yet wired", "experimental" outside the MCP context, etc.) in
       `README.md`, `COMPATIBILITY.md`, `CHANGELOG.md` so future drift is
       caught at PR time.
+      — **Not implemented:** no doc-lint step in `.github/workflows/`.
+      Without this, future stale-claim drift is only caught by manual
+      sweeps. Recommend adding before the next minor release.
 
 ## 5. Demonstration
 
 Goal: prove the semantic-cache value proposition with a runnable example
 that any new user can execute end-to-end.
 
-- [ ] Create `examples/openai-chat/`. Self-contained Go program that
+- [x] Create `examples/openai-chat/`. Self-contained Go program that
       reads `OPENAI_API_KEY` (or `OLLAMA_HOST` for offline mode), wires
       Reverb in front of the OpenAI Go SDK via the
       `pkg/embedding/openai` (or `pkg/embedding/ollama`) provider plus
       `pkg/store/memory` and `pkg/vector/flat`.
-- [ ] Script that runs three rounds: (a) cold cache, exact prompt — miss;
+- [x] Script that runs three rounds: (a) cold cache, exact prompt — miss;
       (b) same exact prompt — exact hit; (c) paraphrased prompt —
       semantic hit, with similarity and lineage printed.
-- [ ] `examples/openai-chat/README.md` with copy-paste setup, expected
+- [x] `examples/openai-chat/README.md` with copy-paste setup, expected
       output, and a one-liner explaining why the paraphrase round is the
       thing that makes Reverb interesting.
-- [ ] Add the example to the "examples" gallery in the main `README.md`.
-- [ ] CI: run the example in offline (Ollama) mode against a containerized
+- [x] Add the example to the "examples" gallery in the main `README.md`.
+      — `README.md:231` lists it alongside the other examples; full
+      walkthrough at `README.md:270` "OpenAI / Ollama paraphrase demo".
+- [x] CI: run the example in offline (Ollama) mode against a containerized
       Ollama with a small embedder model, asserting the third round
       produces a semantic hit.
+      — `.github/workflows/example-openai-chat.yml`.
 
 ## Sequencing notes
 

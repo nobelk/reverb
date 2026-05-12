@@ -5,6 +5,7 @@ import (
 
 	"github.com/nobelk/reverb/pkg/cdc"
 	"github.com/nobelk/reverb/pkg/metrics"
+	"github.com/nobelk/reverb/pkg/normalize"
 )
 
 // Option is a functional option for configuring a Client.
@@ -55,6 +56,31 @@ func WithPrometheusCollector(pc *metrics.PrometheusCollector) Option {
 func WithTracer(tracer *metrics.Tracer) Option {
 	return func(c *Client) {
 		c.tracer = tracer
+	}
+}
+
+// WithDefaultRedactor sets a Redactor that is applied to every namespace
+// not explicitly overridden via WithNamespaceRedactor. Pass nil to disable.
+//
+// The redactor runs between normalize.Normalize and the SHA-256 cache key.
+// Enabling redaction on an existing cache invalidates prior entries by
+// construction (the hash changes). Operators should expect a one-time hit-
+// rate drop and either drain the cache or accept the natural rebuild.
+func WithDefaultRedactor(r normalize.Redactor) Option {
+	return func(c *Client) {
+		c.defaultRedactor = r
+	}
+}
+
+// WithNamespaceRedactor sets a per-namespace redactor override. The
+// override takes precedence over WithDefaultRedactor. Pass a nil redactor
+// to explicitly disable redaction for namespace.
+func WithNamespaceRedactor(namespace string, r normalize.Redactor) Option {
+	return func(c *Client) {
+		if c.redactors == nil {
+			c.redactors = make(map[string]normalize.Redactor)
+		}
+		c.redactors[namespace] = r
 	}
 }
 

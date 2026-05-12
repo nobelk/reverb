@@ -27,6 +27,28 @@ class SourceRef:
 
 
 @dataclass(frozen=True)
+class ResponseChunk:
+    """One delta in a streamed response.
+
+    ``finish_reason`` is non-empty only on the terminal chunk, mirroring the
+    OpenAI SSE convention.
+    """
+
+    delta: str
+    finish_reason: str | None = None
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"delta": self.delta}
+        if self.finish_reason:
+            out["finish_reason"] = self.finish_reason
+        return out
+
+    @classmethod
+    def from_wire(cls, data: dict[str, Any]) -> ResponseChunk:
+        return cls(delta=data["delta"], finish_reason=data.get("finish_reason") or None)
+
+
+@dataclass(frozen=True)
 class CacheEntry:
     id: str
     created_at: str
@@ -38,6 +60,7 @@ class CacheEntry:
     expires_at: str | None = None
     response_meta: dict[str, str] = field(default_factory=dict)
     sources: list[SourceRef] = field(default_factory=list)
+    chunks: list[ResponseChunk] = field(default_factory=list)
 
     @classmethod
     def from_wire(cls, data: dict[str, Any]) -> CacheEntry:
@@ -52,6 +75,7 @@ class CacheEntry:
             expires_at=data.get("expires_at"),
             response_meta=dict(data.get("response_meta") or {}),
             sources=[SourceRef.from_wire(s) for s in (data.get("sources") or [])],
+            chunks=[ResponseChunk.from_wire(c) for c in (data.get("chunks") or [])],
         )
 
 

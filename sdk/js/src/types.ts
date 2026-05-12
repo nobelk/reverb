@@ -10,6 +10,12 @@ export interface SourceRef {
   content_hash: string;
 }
 
+export interface ResponseChunk {
+  delta: string;
+  /** Set on the terminal chunk only. Mirrors OpenAI ("stop", "length", ...). */
+  finish_reason?: string;
+}
+
 export interface CacheEntry {
   id: string;
   created_at: string;
@@ -18,6 +24,7 @@ export interface CacheEntry {
   prompt: string;
   model_id: string;
   response: string;
+  chunks?: ResponseChunk[];
   response_meta?: Record<string, string>;
   sources?: SourceRef[];
   hit_count: number;
@@ -40,7 +47,10 @@ export interface StoreRequest {
   namespace: string;
   prompt: string;
   model_id?: string;
-  response: string;
+  /** Either `response` or `chunks` is required. */
+  response?: string;
+  /** Either `response` or `chunks` is required. */
+  chunks?: ResponseChunk[];
   response_meta?: Record<string, string>;
   sources?: SourceRef[];
   ttl_seconds?: number;

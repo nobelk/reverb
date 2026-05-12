@@ -6,13 +6,15 @@ to one operation in the spec — ``lookup`` → ``POST /v1/lookup``, etc.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping
+import json
+from typing import Any, AsyncIterator, Iterable, Iterator, Mapping
 
 import httpx
 
 from reverb._types import (
     CacheEntry,
     LookupResponse,
+    ResponseChunk,
     SourceRef,
     StatsResponse,
     StoreResponse,
@@ -66,17 +68,18 @@ def _store_body(
     *,
     namespace: str,
     prompt: str,
-    response: str,
+    response: str | None,
+    chunks: Iterable[ResponseChunk] | None,
     model_id: str | None,
     response_meta: Mapping[str, str] | None,
     sources: Iterable[SourceRef] | None,
     ttl_seconds: int | None,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "namespace": namespace,
-        "prompt": prompt,
-        "response": response,
-    }
+    body: dict[str, Any] = {"namespace": namespace, "prompt": prompt}
+    if response is not None:
+        body["response"] = response
+    if chunks is not None:
+        body["chunks"] = [c.to_wire() for c in chunks]
     if model_id is not None:
         body["model_id"] = model_id
     if response_meta:
@@ -86,6 +89,23 @@ def _store_body(
     if ttl_seconds is not None:
         body["ttl_seconds"] = int(ttl_seconds)
     return body
+
+
+def _parse_sse_chunks(text_lines: Iterable[str]) -> Iterator[ResponseChunk]:
+    """Yield ResponseChunks from SSE `data:` lines, stopping at `[DONE]`.
+
+    Comment lines (starting with `:`) are skipped.
+    """
+    for raw in text_lines:
+        line = raw.rstrip("\r\n")
+        if not line or line.startswith(":"):
+            continue
+        if not line.startswith("data: "):
+            continue
+        payload = line[len("data: "):]
+        if payload == "[DONE]":
+            return
+        yield ResponseChunk.from_wire(json.loads(payload))
 
 
 def _lookup_body(*, namespace: str, prompt: str, model_id: str | None) -> dict[str, Any]:
@@ -152,19 +172,39 @@ class Reverb:
         *,
         namespace: str,
         prompt: str,
-        response: str,
+        response: str | None = None,
+        chunks: Iterable[ResponseChunk] | None = None,
         model_id: str | None = None,
         response_meta: Mapping[str, str] | None = None,
         sources: Iterable[SourceRef] | None = None,
         ttl_seconds: int | None = None,
     ) -> StoreResponse:
+        if response is None and chunks is None:
+            raise ValueError("either response or chunks is required")
         resp = self._http.post("/v1/store", json=_store_body(
-            namespace=namespace, prompt=prompt, response=response,
+            namespace=namespace, prompt=prompt, response=response, chunks=chunks,
             model_id=model_id, response_meta=response_meta,
             sources=sources, ttl_seconds=ttl_seconds,
         ))
         _raise_for_status(resp)
         return StoreResponse.from_wire(resp.json())
+
+    def lookup_stream(
+        self,
+        *,
+        namespace: str,
+        prompt: str,
+        model_id: str | None = None,
+    ) -> Iterator[ResponseChunk]:
+        """Stream a cached response. Raises ``ReverbNotFound`` on a miss."""
+        with self._http.stream(
+            "POST", "/v1/lookup-stream",
+            json=_lookup_body(namespace=namespace, prompt=prompt, model_id=model_id),
+        ) as resp:
+            if resp.status_code >= 400:
+                resp.read()
+                _raise_for_status(resp)
+            yield from _parse_sse_chunks(resp.iter_lines())
 
     def invalidate(self, *, source_id: str) -> int:
         resp = self._http.post("/v1/invalidate", json={"source_id": source_id})
@@ -234,19 +274,48 @@ class AsyncReverb:
         *,
         namespace: str,
         prompt: str,
-        response: str,
+        response: str | None = None,
+        chunks: Iterable[ResponseChunk] | None = None,
         model_id: str | None = None,
         response_meta: Mapping[str, str] | None = None,
         sources: Iterable[SourceRef] | None = None,
         ttl_seconds: int | None = None,
     ) -> StoreResponse:
+        if response is None and chunks is None:
+            raise ValueError("either response or chunks is required")
         resp = await self._http.post("/v1/store", json=_store_body(
-            namespace=namespace, prompt=prompt, response=response,
+            namespace=namespace, prompt=prompt, response=response, chunks=chunks,
             model_id=model_id, response_meta=response_meta,
             sources=sources, ttl_seconds=ttl_seconds,
         ))
         _raise_for_status(resp)
         return StoreResponse.from_wire(resp.json())
+
+    async def lookup_stream(
+        self,
+        *,
+        namespace: str,
+        prompt: str,
+        model_id: str | None = None,
+    ) -> AsyncIterator[ResponseChunk]:
+        """Async streamed replay. Use ``async for chunk in client.lookup_stream(...)``."""
+        async with self._http.stream(
+            "POST", "/v1/lookup-stream",
+            json=_lookup_body(namespace=namespace, prompt=prompt, model_id=model_id),
+        ) as resp:
+            if resp.status_code >= 400:
+                await resp.aread()
+                _raise_for_status(resp)
+            async for raw in resp.aiter_lines():
+                line = raw.rstrip("\r\n")
+                if not line or line.startswith(":"):
+                    continue
+                if not line.startswith("data: "):
+                    continue
+                payload = line[len("data: "):]
+                if payload == "[DONE]":
+                    return
+                yield ResponseChunk.from_wire(json.loads(payload))
 
     async def invalidate(self, *, source_id: str) -> int:
         resp = await self._http.post("/v1/invalidate", json={"source_id": source_id})

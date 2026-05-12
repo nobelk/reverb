@@ -90,6 +90,43 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/lookup-stream:
+    post:
+      tags: [cache]
+      summary: Stream a cached response as Server-Sent Events.
+      description: |
+        On a cache hit, replays the entry as `text/event-stream`. Each chunk
+        becomes a single `data:` line; the stream terminates with `data: [DONE]`
+        per the OpenAI SSE convention. Entries stored without `chunks` are
+        emitted as a single chunk carrying the full response text. A 15s
+        comment-line keepalive is interleaved so intermediate proxies don't
+        time out long replays. On a miss, returns `404` with the standard
+        error envelope; the response body is JSON, not SSE.
+      operationId: lookupStream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LookupRequest"
+      responses:
+        "200":
+          description: Cache hit; body is an SSE stream of `ResponseChunk` objects terminated by `[DONE]`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/store:
     post:
       tags: [cache]
@@ -354,7 +391,7 @@ components:
 
     StoreRequest:
       type: object
-      required: [namespace, prompt, response]
+      required: [namespace, prompt]
       properties:
         namespace:
           type: string
@@ -367,7 +404,18 @@ components:
           description: Model identifier (recommended).
         response:
           type: string
-          description: The model's response text. Required.
+          description: |
+            The model's response text. Either `response` or `chunks` is required.
+            When both are present, `chunks` wins and `response` is overridden by
+            the concatenation of every chunk's `delta`.
+        chunks:
+          type: array
+          description: |
+            Streamed-delta form of the response. Either `response` or `chunks`
+            is required. When present, the entry is replayable via
+            `POST /v1/lookup-stream`.
+          items:
+            $ref: "#/components/schemas/ResponseChunk"
         response_meta:
           type: object
           description: Free-form metadata attached to the entry.
@@ -382,6 +430,17 @@ components:
           type: integer
           minimum: 0
           description: Override the default TTL. Zero or omitted uses the server default.
+
+    ResponseChunk:
+      type: object
+      required: [delta]
+      properties:
+        delta:
+          type: string
+          description: The text contribution of this chunk.
+        finish_reason:
+          type: string
+          description: Set on the terminal chunk only. Mirrors OpenAI semantics ("stop", "length", "content_filter", "tool_calls", ...).
 
     StoreResponse:
       type: object
@@ -474,6 +533,11 @@ components:
           type: string
         response:
           type: string
+        chunks:
+          type: array
+          description: Streamed-delta form of the response, when one was stored. Omitted for legacy entries.
+          items:
+            $ref: "#/components/schemas/ResponseChunk"
         response_meta:
           type: object
           additionalProperties:

@@ -8,12 +8,13 @@ import (
 
 // Collector tracks cache metrics using atomic counters.
 type Collector struct {
-	ExactHits       atomic.Int64
-	SemanticHits    atomic.Int64
-	Misses          atomic.Int64
-	Stores          atomic.Int64
-	Invalidations   atomic.Int64
-	EmbeddingErrors atomic.Int64
+	ExactHits             atomic.Int64
+	SemanticHits          atomic.Int64
+	Misses                atomic.Int64
+	Stores                atomic.Int64
+	Invalidations         atomic.Int64
+	EmbeddingErrors       atomic.Int64
+	SingleflightCoalesced atomic.Int64
 }
 
 // NewCollector creates a new metrics collector.
@@ -69,6 +70,12 @@ type PrometheusCollector struct {
 	RejectedRequestsTotal *prometheus.CounterVec // labels: protocol (http|grpc), reason (rate_limit|overload)
 	EmbeddingInFlight     prometheus.Gauge
 	EmbeddingQueueDepth   prometheus.Gauge
+
+	// SingleflightCoalescedTotal counts followers that piggy-backed on an
+	// in-flight LookupOrCall — i.e. concurrent identical misses that did
+	// not trigger their own upstream fill. Increments by N-1 per coalesced
+	// flight of N callers. A leader's own call is never counted here.
+	SingleflightCoalescedTotal prometheus.Counter
 }
 
 // NewPrometheusCollector creates and registers all Reverb Prometheus metrics.
@@ -147,6 +154,11 @@ func NewPrometheusCollector(reg prometheus.Registerer) (*PrometheusCollector, er
 			Name: "reverb_embedding_queue_depth",
 			Help: "Number of callers waiting for an embedding-provider slot.",
 		}),
+
+		SingleflightCoalescedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "reverb_singleflight_coalesced_total",
+			Help: "LookupOrCall callers that coalesced onto an in-flight fill instead of triggering their own.",
+		}),
 	}
 
 	collectors := []prometheus.Collector{
@@ -163,6 +175,7 @@ func NewPrometheusCollector(reg prometheus.Registerer) (*PrometheusCollector, er
 		pc.RejectedRequestsTotal,
 		pc.EmbeddingInFlight,
 		pc.EmbeddingQueueDepth,
+		pc.SingleflightCoalescedTotal,
 	}
 
 	for _, col := range collectors {

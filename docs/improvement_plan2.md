@@ -2,8 +2,11 @@
 
 **Author:** Principal PM review
 **Date:** 2026-04-30
+**Last status sweep:** 2026-05-10 (commit `361f3d3`, post-0.1.0 unreleased)
 **Codebase reviewed:** `main` @ `c9b6146` (post-0.1.0 unreleased)
 **Audience:** core maintainers + prospective adopters (Go service teams, ML platform engineers, LLM-app builders, ops/SRE)
+
+> **Status legend (added 2026-05-10):** `✅ DONE` — landed on `main`. `⚠️ PARTIAL` — partially implemented; see notes. Unmarked items are not yet started. Counts are summarized in §2.
 
 ---
 
@@ -44,6 +47,8 @@ This plan organizes ~40 concrete improvements across **8 categories**, each with
 
 Total: **9 P0, 20 P1, 13 P2**.
 
+**Status snapshot (2026-05-10):** 6 items DONE (A1, A2, A6, H1, H2, H4 — all P0), 2 PARTIAL (B1, E2), 34 not started. **6 of the 9 P0s have shipped** — every Q1 P0 in categories A and H is done; the remaining P0s (B1 finish + B2, C1, D1, E1, F1, G1) are the implementation-heavy ones. See §3 for updated sequencing.
+
 ---
 
 ## A. Multi-language SDKs & framework adapters
@@ -52,12 +57,12 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Target user | Effort | Priority |
 |---|---|---|---|---|
-| A1 | **Python SDK** with `lookup`, `store`, `invalidate`, plus context-manager/decorator sugar (`@cached_completion`) that wraps OpenAI/Anthropic SDK calls. | LLM app devs (Python is dominant) | M | **P0** |
-| A2 | **TypeScript/JS SDK** for Node + browser-edge runtimes (Vercel, Cloudflare Workers). Same surface as Python; ships as `@reverb/client`. | Edge/JS devs | M | **P0** |
+| A1 | ✅ **DONE** — **Python SDK** with `lookup`, `store`, `invalidate`, plus context-manager/decorator sugar (`@cached_completion`) that wraps OpenAI/Anthropic SDK calls. Shipped at `sdk/python/reverb/` (v0.1.0rc0). | LLM app devs (Python is dominant) | M | **P0** |
+| A2 | ✅ **DONE** — **TypeScript/JS SDK** for Node + browser-edge runtimes (Vercel, Cloudflare Workers). Same surface as Python; ships as `@reverb/client`. Shipped at `sdk/js/`. | Edge/JS devs | M | **P0** |
 | A3 | **LangChain & LlamaIndex integrations** — `ReverbCache` LLM cache class for LangChain; `ReverbCallback` for LlamaIndex. Closes the gap vs. GPTCache which already ships these. | Framework users | S (each) | P1 |
 | A4 | **LiteLLM proxy hook** — register reverb as a LiteLLM cache plugin, so any model behind LiteLLM picks up reverb caching with one config line. | LLM gateway users | S | P1 |
 | A5 | **Java + Rust SDKs** generated from the existing `.proto` plus thin sugar wrappers. Lower priority: targets infrastructure teams that have already adopted gRPC. | JVM / Rust services | M each | P2 |
-| A6 | **OpenAPI 3.1 spec** for the HTTP API, published to repo + GitHub Pages. Enables auto-generated SDKs in 30+ languages and Swagger UI for try-it-now. | All HTTP consumers | S | **P0** (prereq for A1/A2 if we go OpenAPI-first) |
+| A6 | ✅ **DONE** — **OpenAPI 3.1 spec** for the HTTP API, published to repo + GitHub Pages. Enables auto-generated SDKs in 30+ languages and Swagger UI for try-it-now. Shipped at `openapi/v1.yaml`; drift-tested against the Go HTTP handlers via `pkg/server/openapi_drift_test.go`. | All HTTP consumers | S | **P0** (prereq for A1/A2 if we go OpenAPI-first) |
 
 ---
 
@@ -67,7 +72,7 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Target user | Effort | Priority |
 |---|---|---|---|---|
-| B1 | **`reverb-cli` binary** (separate from server) with subcommands: `stats`, `lookup`, `store`, `invalidate <source>`, `evict --namespace`, `warm <jsonl>`, `export`, `import`, `validate-config`. Talks HTTP or gRPC. | Operators, on-call SRE | M | **P0** |
+| B1 | ⚠️ **PARTIAL** — **`reverb-cli` binary** (separate from server) with subcommands: `stats`, `lookup`, `store`, `invalidate <source>`, `evict --namespace`, `warm <jsonl>`, `export`, `import`, `validate-config`. Talks HTTP or gRPC. **Wired:** `stats`, `lookup`, `store`, `invalidate`, `warm`, `validate-config` (`cmd/reverb-cli/cmd_wired.go`). **Stubbed (require new server endpoints):** `evict`, `export`, `import` (`cmd/reverb-cli/cmd_stubs.go`). | Operators, on-call SRE | M | **P0** |
 | B2 | **Admin web UI** (single-page, embedded in the binary at `/_admin`): hit-rate by namespace over time, top sources by entry count, entry browser with filter (namespace, model, age), test query box that runs a lookup and shows tier + similarity + lineage. | Operators, demo-driving devs | L | **P0** |
 | B3 | **Pre-built Grafana dashboard JSON** committed to `dashboards/`: hit-rate, p50/p95/p99 lookup latency by tier, embedding errors, rate-limit rejections, queue depth, invalidation throughput. | Ops teams | S | P1 |
 | B4 | **Pre-built Prometheus alerting rules** in `dashboards/alerts/`: hit-rate-drop, embedding-provider-failure-rate, vector-index-stale, store-unavailable. | Ops | S | P1 |
@@ -81,11 +86,11 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Problem | Solution | Target user | Effort | Priority |
 |---|---|---|---|---|---|---|
-| C1 | **Streaming response support** | Most modern LLM endpoints stream tokens (SSE / chunked). Reverb stores complete strings only — caller can't replay a cached answer as a stream. | Add `chunks []ResponseChunk` (delta + finish_reason) alongside `ResponseText`. New HTTP endpoint `POST /v1/lookup-stream` returns SSE if cached. | LLM app devs | M | **P0** |
+| C1 | ✅ **DONE** — **Streaming response support** | Most modern LLM endpoints stream tokens (SSE / chunked). Reverb stores complete strings only — caller can't replay a cached answer as a stream. | Add `chunks []ResponseChunk` (delta + finish_reason) alongside `ResponseText`. New HTTP endpoint `POST /v1/lookup-stream` returns SSE if cached. **Status:** shipped in `spec/phase-1-core-readiness`. `Chunks []ResponseChunk` added to `StoreRequest` and `CacheEntry`; `POST /v1/lookup-stream` returns SSE; gRPC adds server-streaming `LookupStream`; Python and TS SDKs add `lookup_stream`/`lookupStream`. Existing `/v1/lookup` is unchanged. | LLM app devs | M | **P0** |
 | C2 | **Configurable cache-key components** | Two callers with different system prompts or different `tools` schemas get the same response back. Today only `model_id` is part of the key. | Add `KeyExtras map[string]string` to `LookupRequest`/`StoreRequest` — operators choose which to fold into the hash (`system_prompt`, `tools_hash`, `user_id`, `locale`, `kb_version`). Also expose `WithKeyExtractor` option for the Go API. | Library users | M | P1 |
 | C3 | **Multi-modal prompt support** | Image/audio prompts can't be cached; embedding/normalize layer assumes text. | Define `Prompt` as a typed message-list with parts (`text`, `image_url`, `image_b64`, `audio`). Allow plug-in multi-modal embedders (CLIP, OpenAI's `text-embedding-3-large` with image input, Cohere `embed-multilingual-v3`). | RAG/multi-modal app devs | L | P1 |
 | C4 | **Tool / function-call result caching** | `ResponseMeta map[string]string` is too thin to capture function-call args + results. | Promote response to a structured `Response` shape with `Text`, `ToolCalls []ToolCall`, `FinishReason`. Lookup respects schema-version bump as auto-invalidation. | Agent builders | M | P1 |
-| C5 | **OpenAI-compatible reverse-proxy mode** | Standard adoption pattern is "drop a cache in front of OpenAI." We have no `POST /v1/chat/completions` shim today. | New mode `--proxy openai --upstream https://api.openai.com`: forward on miss, cache on success, return on hit. Honour `cache-control: no-cache` request header for bypass. | Anyone using OpenAI-API-shaped servers (incl. vLLM, llama.cpp, Together, Anyscale, Ollama, OpenRouter) | L | **P1 (high leverage)** |
+| C5 | ✅ **DONE** — **OpenAI-compatible reverse-proxy mode** | Standard adoption pattern is "drop a cache in front of OpenAI." We have no `POST /v1/chat/completions` shim today. | New mode `--proxy openai --upstream https://api.openai.com`: forward on miss, cache on success, return on hit. Honour `cache-control: no-cache` request header for bypass. **Status:** shipped in `spec/phase-1-core-readiness`. `cmd/reverb --proxy openai --upstream <url>` serves OpenAI-shaped `/v1/chat/completions` (and forwards `/v1/embeddings`); honors `Cache-Control: no-cache` and `no-store`; tees streams. See `examples/openai-proxy/`. | Anyone using OpenAI-API-shaped servers (incl. vLLM, llama.cpp, Together, Anyscale, Ollama, OpenRouter) | L | **P1 (high leverage)** |
 | C6 | **Negative caching (miss-known)** | If the LLM consistently returns "I don't know", we re-pay every time. | Optional `StoreNegative` flag with shorter TTL (e.g., 5min) so we cache "no answer" and skip the LLM for repeats — but with auto-expiry so retry happens after KB update. | Cost-sensitive teams | S | P2 |
 | C7 | **Per-namespace config (TTL, threshold, scope)** | Currently global. A "support-bot" namespace may want 24h TTL + 0.97; a "scratchpad" may want 5min + 0.85. | YAML schema: `namespaces: { name: x, config: { default_ttl, similarity_threshold, scope_by_model } }`. Falls back to global. | Multi-tenant operators | S | P1 |
 | C8 | **Sliding TTL on hit** | Today TTL is fixed at write. A frequently hit entry expires the same as a cold one. | Optional `RefreshOnHit time.Duration` extending `ExpiresAt` on lookup. Implementation note: do under same atomic update as `IncrementHit`. | Library users | S | P2 |
@@ -114,8 +119,8 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Problem | Solution | Target user | Effort | Priority |
 |---|---|---|---|---|---|---|
-| E1 | **Singleflight on miss** | If 100 callers hit a cold cache simultaneously for the same prompt, all 100 hit the LLM. | In `Client.Lookup`, on miss, return a "miss-token" the caller passes back into `Store`; or expose a `LookupOrCall(ctx, req, fillFn)` helper that coalesces concurrent fills via `golang.org/x/sync/singleflight`. | All users (cost saver) | S | **P0** |
-| E2 | **Persistent vector index (HNSW-on-disk)** | HNSW is memory-only; restart loses the index unless `rebuild_vector_index_on_startup=true` re-scans the whole store (O(N)). | Add a `vector.PersistableIndex` variant that periodically snapshots HNSW graph to disk; load on startup. Alternatively integrate `pgvector` or `qdrant` (see F-section). | Operators with large caches | M | P1 |
+| E1 | ✅ **DONE** — **Singleflight on miss** | If 100 callers hit a cold cache simultaneously for the same prompt, all 100 hit the LLM. | In `Client.Lookup`, on miss, return a "miss-token" the caller passes back into `Store`; or expose a `LookupOrCall(ctx, req, fillFn)` helper that coalesces concurrent fills via `golang.org/x/sync/singleflight`. **Status:** shipped in `spec/phase-1-core-readiness`. `Client.LookupOrCall(ctx, req, fill)` keyed by the same SHA-256 prompt hash the exact tier uses; metric `reverb_singleflight_coalesced_total`; existing `Lookup` is unchanged. | All users (cost saver) | S | **P0** |
+| E2 | ⚠️ **PARTIAL** — **Persistent vector index (HNSW-on-disk)** | HNSW is memory-only; restart loses the index unless `rebuild_vector_index_on_startup=true` re-scans the whole store (O(N)). | Add a `vector.PersistableIndex` variant that periodically snapshots HNSW graph to disk; load on startup. Alternatively integrate `pgvector` or `qdrant` (see F-section). **Status:** the rebuild-on-startup mitigation has shipped (`reverb.WithRebuildVectorIndex`, `store.rebuild_vector_index_on_startup`); the HNSW-snapshot variant is still not implemented. | Operators with large caches | M | P1 |
 | E3 | **Horizontal cluster mode** (read-through replicas) | One reverb node per service is the only deployment shape today. | Cluster: shared Redis/Postgres store; each node owns its own vector index but listens on shared CDC; gossip-style invalidation broadcast. Define `cluster.Membership` interface. | High-throughput services | XL | P2 |
 | E4 | **Bounded eviction policy** | Only TTL-based eviction exists. A namespace can grow unboundedly. | Add `max_entries_per_namespace` + `eviction_policy: lru | lfu | size`. Track `LastHitAt` (already there) and add bookkeeping. | Operators with bursty traffic | M | P1 |
 | E5 | **Background embedding-fill** | Entries with `EmbeddingMissing=true` (embed failed during Store) never get retried; they're permanently exact-only. | Reaper-adjacent goroutine periodically picks up `EmbeddingMissing` entries and retries the embedder; on success, populates `Embedding` and adds to vector index. | Library users | S | P1 |
@@ -146,7 +151,7 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Problem | Solution | Target user | Effort | Priority |
 |---|---|---|---|---|---|---|
-| G1 | **PII redaction hook in normalize pipeline** | `normalize.Normalize` only handles NFC/case/whitespace. Sensitive PII gets hashed and stored unredacted in `PromptText`. | Optional `Redactor` interface invoked between normalize and hash; ship a default regex-based redactor (emails, phones, credit-card patterns, SSN). Per-namespace toggle. | Regulated industries | M | **P0** |
+| G1 | ✅ **DONE** — **PII redaction hook in normalize pipeline** | `normalize.Normalize` only handles NFC/case/whitespace. Sensitive PII gets hashed and stored unredacted in `PromptText`. | Optional `Redactor` interface invoked between normalize and hash; ship a default regex-based redactor (emails, phones, credit-card patterns, SSN). Per-namespace toggle. **Status:** shipped in `spec/phase-1-core-readiness`. `pkg/normalize.Redactor` interface, `pkg/normalize/redactor/regex` default implementation; `WithDefaultRedactor` / `WithNamespaceRedactor` options; per-namespace YAML config; default-off so the Quick Start does not change. See `examples/pii-redaction/`. | Regulated industries | M | **P0** |
 | G2 | **JWT/OIDC auth** | API keys are static in YAML — no rotation story. | Pluggable `auth.Verifier`: bearer-key (current), JWT (RS256 / ES256 with JWKS endpoint), OIDC (introspect). Gives token-rotation for free. | Enterprise | M | P1 |
 | G3 | **mTLS support on HTTP/gRPC** | Today TLS is plain bearer-token over HTTPS-by-reverse-proxy. mTLS would be in-process. | `server.tls: { cert, key, client_ca }` config. | High-trust zones | S | P1 |
 | G4 | **API key rotation tooling** | Rotating a tenant key today means edit YAML + reload. No overlap window. | Allow `api_keys: []string` per tenant (already supported!) plus a `expires_at` per key. Stop accepting expired keys. Surface keys-expiring-soon metric. | Multi-tenant operators | S | P2 |
@@ -161,10 +166,10 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 | ID | Item | Notes | Effort | Priority |
 |---|---|---|---|---|
-| H1 | **Close: metrics HTTP server "not yet wired"** | README/COMPATIBILITY/CHANGELOG all flag this as a known gap. Looking at `cmd/reverb/main.go` it actually *is* wired now (`WithMetricsOnMux` + `NewMetricsServer`). **The doc is stale.** Fix-forward: sweep all three docs and the `metrics_test.go` invariants. | S | **P0** |
-| H2 | **Implement `--validate` flag** | COMPATIBILITY.md upgrade-testing checklist references this; CHANGELOG known-gaps repeats it. Should parse config + run a sample lookup + exit. | S | **P0** |
-| H3 | **Move MCP from experimental → beta** | The MCP wrapper at `pkg/server/mcp` is solid (570-line implementation + 470 lines of tests). Define the contract and graduate. | S | P1 |
-| H4 | **Recipe-style example: caching a real OpenAI chat app** | All current examples use `fake.New(64)` so users only ever see exact hits. Add `examples/openai-chat/` with real OpenAI key + visible semantic hits. (README already calls out this gap.) | S | **P0** |
+| H1 | ✅ **DONE** — **Close: metrics HTTP server "not yet wired"** | README/COMPATIBILITY/CHANGELOG all flag this as a known gap. Looking at `cmd/reverb/main.go` it actually *is* wired now (`WithMetricsOnMux` + `NewMetricsServer`). **The doc is stale.** Fix-forward: sweep all three docs and the `metrics_test.go` invariants. **Status:** docs swept (README §metrics, `COMPATIBILITY.md:230` now lists Metrics as "Beta", CHANGELOG `Known gaps: (None)`); standalone `metrics.addr` listener supported. | S | **P0** |
+| H2 | ✅ **DONE** — **Implement `--validate` flag** | COMPATIBILITY.md upgrade-testing checklist references this; CHANGELOG known-gaps repeats it. Should parse config + run a sample lookup + exit. **Status:** `reverb --validate` constructs the engine without binding listeners, exercises store connectivity via `Stats()`, and exits with a structured slog error report (`cmd/reverb/main.go`). | S | **P0** |
+| H3 | **Move MCP from experimental → beta** | The MCP wrapper at `pkg/server/mcp` is solid (570-line implementation + 470 lines of tests). Define the contract and graduate. Still marked **experimental** in `COMPATIBILITY.md:152`. | S | P1 |
+| H4 | ✅ **DONE** — **Recipe-style example: caching a real OpenAI chat app** | All current examples use `fake.New(64)` so users only ever see exact hits. Add `examples/openai-chat/` with real OpenAI key + visible semantic hits. (README already calls out this gap.) **Status:** `examples/openai-chat/` ships a runnable demo against either OpenAI or Ollama showing cold miss → exact hit → semantic hit on a paraphrase, with similarity and lineage printed. | S | **P0** |
 | H5 | **Recipe-style example: reverb behind LangChain** | Demonstrate the LangChain integration (A3) with a 30-line script. | S | P1 — depends on A3 |
 | H6 | **Capacity-planning calculator** in RUNBOOK | A spreadsheet/script that takes (req/sec, prompt-len, embedding-dim, expected hit-rate) and outputs (memory, RPS budget per backend, $/month). | S | P2 |
 
@@ -174,15 +179,17 @@ Total: **9 P0, 20 P1, 13 P2**.
 
 ### Quarter 1 — "Make it adoptable outside the maintainer's stack"
 **Theme: SDKs + operability + close known gaps. P0s only.**
-- A1, A2, A6 (Python + JS SDKs + OpenAPI spec)
-- B1, B2 (CLI + Admin UI)
+- ✅ A1, A2, A6 (Python + JS SDKs + OpenAPI spec) — **shipped**
+- ⚠️ B1 (CLI: 6/9 subcommands wired; `evict`/`export`/`import` await server endpoints), B2 (Admin UI — not started)
 - C1 (streaming response support)
 - C5 (OpenAI-compatible proxy mode — high leverage even though it's listed P1)
 - D1 (cross-encoder re-ranker)
 - E1 (singleflight)
 - F1 (pgvector / Postgres backend)
 - G1 (PII redaction hook)
-- H1, H2, H4 (close stale-doc gap, implement `--validate`, real-OpenAI example)
+- ✅ H1, H2, H4 (close stale-doc gap, implement `--validate`, real-OpenAI example) — **shipped**
+
+**Q1 progress (2026-05-10):** 6/13 P0 items merged. The shipped six unblock external adopters today; remaining seven are the engineering-heavy items that drive the 0.2 release. Recommend prioritizing **E1 (singleflight)** and **G1 (PII redaction)** next — both are S-effort and unlock enterprise pilots, and finishing **B1 stubs** is gated on adding the corresponding HTTP/gRPC endpoints (a small server-side scope).
 
 **Net result:** Reverb 0.2 ships as a polyglot, pluggable-into-real-stacks library with materially better quality controls and operator UX. Story for the README becomes "drop in front of OpenAI in 5 lines, in any language, with KB-aware invalidation."
 

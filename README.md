@@ -31,6 +31,10 @@ reverb.Store(req, resp, sources)
 - **Knowledge-aware invalidation** — Tracks which source documents contributed to each cached response; automatically invalidates when sources change
 - **CDC listeners** — Webhook and NATS change-data-capture for source document updates (polling available in library mode)
 - **Namespace isolation** — Logical partitions for multi-tenant or multi-use-case deployments
+- **Streaming response support** — Store responses as a chunk sequence and replay them as Server-Sent Events via `POST /v1/lookup-stream`; `/v1/lookup` keeps returning the concatenated text. See [`examples/openai-proxy/`](examples/openai-proxy/) for an end-to-end stream-through-cache example.
+- **OpenAI-compatible reverse-proxy mode** — `cmd/reverb --proxy openai --upstream <url>` turns the binary into a transparent semantic cache in front of any OpenAI-API-compatible upstream (OpenAI, vLLM, llama.cpp, Together, Ollama, OpenRouter). Honors `Cache-Control: no-cache`/`no-store`. See [`examples/openai-proxy/`](examples/openai-proxy/).
+- **Singleflight on cache miss** — `Client.LookupOrCall` coalesces concurrent identical misses into a single upstream call.
+- **PII redaction hook (opt-in)** — `pkg/normalize.Redactor` interface plus a default regex-based implementation strips emails, phones, credit cards, and SSNs before hashing/storage. Per-namespace toggle. See [`examples/pii-redaction/`](examples/pii-redaction/).
 - **Pluggable backends** — Interfaces for embedding providers, vector indices, and persistence stores (memory, Redis, BadgerDB)
 - **Standalone HTTP & gRPC servers** — REST and gRPC APIs for language-agnostic integration
 - **Minimal dependencies** — No infrastructure required; core library runs with in-memory store and flat vector index
@@ -289,6 +293,30 @@ go run ./examples/openai-chat --provider=ollama
 See [`examples/openai-chat/README.md`](examples/openai-chat/README.md) for
 expected output and a longer explanation of why round 3 is the interesting
 one.
+
+### OpenAI-Compatible Proxy (`examples/openai-proxy/`)
+
+Boots `cmd/reverb` with `--proxy openai`, points it at a fake OpenAI
+upstream, and asserts that the second of two identical chat-completions
+requests is served from cache (`X-Reverb-Cache: HIT`, upstream call count
+stays at one). The point-of-deployment for any application that already
+talks to an OpenAI-API-shaped service.
+
+```bash
+go run ./examples/openai-proxy
+```
+
+### PII Redaction (`examples/pii-redaction/`)
+
+Wires the regex redactor into a Reverb client, stores a prompt with an
+email + phone, and asserts the stored entry shows the placeholder forms
+(`[EMAIL]`, `[PHONE]`) — no PII at rest. Two prompts that differ only in
+the redacted spans share a cache entry; a control client without the
+redactor misses on the same alt-PII prompt.
+
+```bash
+go run ./examples/pii-redaction
+```
 
 ### Stale Knowledge Prevention (`examples/stale-knowledge/`)
 

@@ -298,5 +298,9 @@ func copyEntry(e *store.CacheEntry) *store.CacheEntry {
 			cp.ResponseMeta[k] = v
 		}
 	}
+	if e.Chunks != nil {
+		cp.Chunks = make([]store.ResponseChunk, len(e.Chunks))
+		copy(cp.Chunks, e.Chunks)
+	}
 	return &cp
 }

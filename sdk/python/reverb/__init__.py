@@ -14,6 +14,7 @@ re-exported so callers do not need to import from ``reverb._types``.
 from reverb._types import (
     CacheEntry,
     LookupResponse,
+    ResponseChunk,
     SourceRef,
     StatsResponse,
     StoreResponse,
@@ -40,6 +41,7 @@ __all__ = [
     "ReverbNotFound",
     "ReverbRateLimited",
     "ReverbUnauthorized",
+    "ResponseChunk",
     "SourceRef",
     "StatsResponse",
     "StoreResponse",

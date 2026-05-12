@@ -273,6 +273,34 @@ Before rolling a new Reverb version to production, we recommend:
    supported at its pinned version. See the `go.mod` `require` block for the
    tested versions.
 
+### Migration notes by feature
+
+#### Streaming response support (additive only)
+
+The `Chunks []ResponseChunk` field on `StoreRequest` and `CacheEntry` is
+optional. The new `POST /v1/lookup-stream` endpoint and gRPC `LookupStream`
+RPC are new operations alongside the existing `Lookup` surface. Existing
+callers see no behavior change. Opting into streaming requires switching
+call sites to the new methods; no data migration is required.
+
+#### PII redactor (one-time invalidation expected on enable)
+
+Enabling the redactor on an existing cache invalidates prior entries by
+construction: the redacted prompt feeds the SHA-256 cache key, so any
+previously stored entry whose prompt contained PII no longer hashes to its
+old key. Operators have two options:
+
+1. Drain the cache before enabling (`DELETE /v1/entries/{id}` for each
+   entry, or just discard the durable store and let the cache rebuild
+   naturally).
+2. Accept the one-time hit-rate drop and let the cache rebuild as traffic
+   flows. Existing entries remain in the store until their TTL expires;
+   they are unreachable but not corrupting.
+
+The redactor ships **disabled by default**, so this only applies to
+operators who explicitly opt in via `redactor.enabled: true` or
+`reverb.WithDefaultRedactor(...)`.
+
 ### Rollback
 
 Rollback is always safe **within a MAJOR line** — older cache entries written

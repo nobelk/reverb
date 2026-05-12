@@ -9,6 +9,7 @@ import {
 import type {
   CacheEntry,
   LookupResponse,
+  ResponseChunk,
   SourceRef,
   StatsResponse,
   StoreResponse,
@@ -39,7 +40,10 @@ export interface LookupParams {
 export interface StoreParams {
   namespace: string;
   prompt: string;
-  response: string;
+  /** Either `response` or `chunks` is required. */
+  response?: string;
+  /** Either `response` or `chunks` is required. */
+  chunks?: ResponseChunk[];
   modelId?: string;
   responseMeta?: Record<string, string>;
   sources?: SourceRef[];
@@ -179,11 +183,15 @@ export class ReverbClient {
   }
 
   async store(params: StoreParams): Promise<StoreResponse> {
+    if (params.response === undefined && params.chunks === undefined) {
+      throw new TypeError("either response or chunks is required");
+    }
     const body: Record<string, unknown> = {
       namespace: params.namespace,
       prompt: params.prompt,
-      response: params.response,
     };
+    if (params.response !== undefined) body["response"] = params.response;
+    if (params.chunks !== undefined) body["chunks"] = params.chunks;
     if (params.modelId !== undefined) body["model_id"] = params.modelId;
     if (params.responseMeta) body["response_meta"] = params.responseMeta;
     if (params.sources) body["sources"] = params.sources;
@@ -191,6 +199,61 @@ export class ReverbClient {
 
     const resp = await this.request("/v1/store", { method: "POST", json: body });
     return (await resp.json()) as StoreResponse;
+  }
+
+  /**
+   * Replay a cached response as a stream of chunks. Yields one
+   * `ResponseChunk` per chunk on a hit and throws `ReverbNotFound` on a miss.
+   *
+   * Example:
+   *   for await (const chunk of client.lookupStream({ namespace, prompt })) {
+   *     process.stdout.write(chunk.delta);
+   *   }
+   */
+  async *lookupStream(params: LookupParams): AsyncIterable<ResponseChunk> {
+    // Bypass the per-request timeout — streams legitimately take longer than
+    // the unary timeout. Cancellation is the caller's responsibility.
+    const headers = this.headers({ "Content-Type": "application/json" });
+    const resp = await this.fetchImpl(`${this.baseUrl}/v1/lookup-stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        namespace: params.namespace,
+        prompt: params.prompt,
+        ...(params.modelId !== undefined ? { model_id: params.modelId } : {}),
+      }),
+    });
+    if (resp.status >= 400) {
+      await raiseForStatus(resp);
+    }
+    if (!resp.body) return;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const raw = buf.slice(0, nl).replace(/\r$/, "");
+          buf = buf.slice(nl + 1);
+          if (!raw || raw.startsWith(":")) continue;
+          if (!raw.startsWith("data: ")) continue;
+          const payload = raw.slice("data: ".length);
+          if (payload === "[DONE]") return;
+          yield JSON.parse(payload) as ResponseChunk;
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        /* already released */
+      }
+    }
   }
 
   async invalidate(params: { sourceId: string }): Promise<number> {

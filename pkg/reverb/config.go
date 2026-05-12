@@ -34,6 +34,8 @@ type Config struct {
 	OTel        OTelConfig        `yaml:"otel"`
 	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
 	Concurrency ConcurrencyConfig `yaml:"concurrency"`
+	Redactor    RedactorConfig    `yaml:"redactor"`
+	Namespaces  []NamespaceConfig `yaml:"namespaces"`
 
 	// Clock — injectable for tests (defaults to real time)
 	Clock Clock `yaml:"-"`
@@ -140,6 +142,23 @@ type OTelConfig struct {
 	Endpoint    string `yaml:"endpoint"`
 	ServiceName string `yaml:"service_name"`
 	Insecure    bool   `yaml:"insecure"`
+}
+
+// RedactorConfig holds PII-redactor configuration applied to every namespace
+// that does not specify its own. Enabled defaults to false so the Quick
+// Start does not change. Default selects the implementation: currently
+// only "regex" is shipped.
+type RedactorConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Default string `yaml:"default"` // "regex" (default when Enabled and unset)
+}
+
+// NamespaceConfig is a minimal per-namespace configuration. Currently only
+// the redactor toggle is honored; additional fields (TTL, threshold,
+// scope_by_model) are tracked separately as roadmap §2.8.
+type NamespaceConfig struct {
+	Name     string         `yaml:"name"`
+	Redactor RedactorConfig `yaml:"redactor"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

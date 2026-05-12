@@ -149,6 +149,47 @@ func (s *GRPCServer) Start(ctx context.Context, addr string) error {
 
 // --- ReverbServiceServer implementation -------------------------------------
 
+// LookupStream replays a cached response as a stream of ResponseChunk
+// messages. Misses close with codes.NotFound. Entries that were stored
+// without chunks are emitted as a single chunk carrying the full response
+// text and finish_reason="stop", mirroring the SSE endpoint's behavior.
+func (s *GRPCServer) LookupStream(req *pb.LookupRequest, stream pb.ReverbService_LookupStreamServer) error {
+	if req.GetNamespace() == "" {
+		return status.Error(codes.InvalidArgument, "namespace is required")
+	}
+	if req.GetPrompt() == "" {
+		return status.Error(codes.InvalidArgument, "prompt is required")
+	}
+
+	ctx := stream.Context()
+	result, err := s.client.Lookup(ctx, reverb.LookupRequest{
+		Namespace: auth.ScopedNamespace(ctx, req.GetNamespace()),
+		Prompt:    req.GetPrompt(),
+		ModelID:   req.GetModelId(),
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "lookup failed: %v", err)
+	}
+	if !result.Hit {
+		return status.Error(codes.NotFound, "no cached response")
+	}
+
+	chunks := result.Entry.Chunks
+	if len(chunks) == 0 {
+		// Legacy entry: synthesize a single terminal chunk.
+		chunks = []store.ResponseChunk{{Delta: result.Entry.ResponseText, FinishReason: "stop"}}
+	}
+	for _, ch := range chunks {
+		if err := stream.Send(&pb.ResponseChunk{
+			Delta:        ch.Delta,
+			FinishReason: ch.FinishReason,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *GRPCServer) Lookup(ctx context.Context, req *pb.LookupRequest) (*pb.LookupResponse, error) {
 	if req.GetNamespace() == "" {
 		return nil, status.Error(codes.InvalidArgument, "namespace is required")
@@ -184,8 +225,8 @@ func (s *GRPCServer) Store(ctx context.Context, req *pb.StoreRequest) (*pb.Store
 	if req.GetPrompt() == "" {
 		return nil, status.Error(codes.InvalidArgument, "prompt is required")
 	}
-	if req.GetResponse() == "" {
-		return nil, status.Error(codes.InvalidArgument, "response is required")
+	if req.GetResponse() == "" && len(req.GetChunks()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "response or chunks is required")
 	}
 
 	sources, err := convertProtoSources(req.GetSources())
@@ -198,11 +239,14 @@ func (s *GRPCServer) Store(ctx context.Context, req *pb.StoreRequest) (*pb.Store
 		ttl = time.Duration(req.GetTtlSeconds()) * time.Second
 	}
 
+	chunks := convertProtoChunks(req.GetChunks())
+
 	entry, err := s.client.Store(ctx, reverb.StoreRequest{
 		Namespace:    auth.ScopedNamespace(ctx, req.GetNamespace()),
 		Prompt:       req.GetPrompt(),
 		ModelID:      req.GetModelId(),
 		Response:     req.GetResponse(),
+		Chunks:       chunks,
 		ResponseMeta: req.GetResponseMeta(),
 		Sources:      sources,
 		TTL:          ttl,
@@ -307,6 +351,11 @@ func toCacheEntryProto(e *store.CacheEntry) *pb.CacheEntry {
 		}
 	}
 
+	chunks := make([]*pb.ResponseChunk, len(e.Chunks))
+	for i, ch := range e.Chunks {
+		chunks[i] = &pb.ResponseChunk{Delta: ch.Delta, FinishReason: ch.FinishReason}
+	}
+
 	return &pb.CacheEntry{
 		Id:            e.ID,
 		CreatedAtUnix: e.CreatedAt.Unix(),
@@ -318,7 +367,19 @@ func toCacheEntryProto(e *store.CacheEntry) *pb.CacheEntry {
 		ResponseMeta:  e.ResponseMeta,
 		Sources:       sources,
 		HitCount:      e.HitCount,
+		Chunks:        chunks,
 	}
+}
+
+func convertProtoChunks(pbChunks []*pb.ResponseChunk) []store.ResponseChunk {
+	if len(pbChunks) == 0 {
+		return nil
+	}
+	out := make([]store.ResponseChunk, len(pbChunks))
+	for i, c := range pbChunks {
+		out[i] = store.ResponseChunk{Delta: c.GetDelta(), FinishReason: c.GetFinishReason()}
+	}
+	return out
 }
 
 func convertProtoSources(pbSources []*pb.SourceRef) ([]store.SourceRef, error) {

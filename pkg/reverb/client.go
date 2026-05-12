@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/nobelk/reverb/internal/hashutil"
 	"github.com/nobelk/reverb/pkg/cache"
@@ -30,6 +32,11 @@ type SourceRef = store.SourceRef
 // CacheEntry is the atomic unit stored by Reverb.
 type CacheEntry = store.CacheEntry
 
+// ResponseChunk is one delta in a streamed LLM response. See
+// store.ResponseChunk — exposed here as an alias so callers don't need to
+// import pkg/store directly.
+type ResponseChunk = store.ResponseChunk
+
 // LookupRequest holds the parameters for a cache lookup.
 type LookupRequest struct {
 	Namespace string
@@ -46,11 +53,16 @@ type LookupResponse struct {
 }
 
 // StoreRequest holds the parameters for storing a cache entry.
+//
+// Exactly one of Response or Chunks should be set. When both are provided,
+// Chunks wins and Response is reconstructed by concatenating every chunk's
+// Delta — so legacy callers reading only Response still see the full answer.
 type StoreRequest struct {
 	Namespace    string
 	Prompt       string
 	ModelID      string
 	Response     string
+	Chunks       []ResponseChunk
 	ResponseMeta map[string]string
 	Sources      []SourceRef
 	TTL          time.Duration
@@ -84,6 +96,9 @@ type Client struct {
 	prom         *metrics.PrometheusCollector
 	tracer       *metrics.Tracer
 	cdcListener  cdc.Listener
+	redactors    map[string]normalize.Redactor // namespace → redactor; nil/missing = pass-through
+	defaultRedactor normalize.Redactor
+	sfGroup      singleflight.Group
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -399,6 +414,9 @@ func (c *Client) Lookup(ctx context.Context, req LookupRequest) (*LookupResponse
 	}()
 
 	normalized := normalize.Normalize(req.Prompt)
+	if r := c.redactorFor(ns); r != nil {
+		normalized = r.Redact(ctx, normalized)
+	}
 	modelID := req.ModelID
 
 	if modelID != "" {
@@ -489,7 +507,26 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 		}
 	}()
 
+	// When Chunks is provided, reconstruct (or override) Response so legacy
+	// readers always observe the full answer. Storing both keeps the entry
+	// usable from /v1/lookup *and* /v1/lookup-stream.
+	if len(req.Chunks) > 0 {
+		var sb strings.Builder
+		for _, ch := range req.Chunks {
+			sb.WriteString(ch.Delta)
+		}
+		req.Response = sb.String()
+	}
+
 	normalized := normalize.Normalize(req.Prompt)
+	if r := c.redactorFor(ns); r != nil {
+		normalized = r.Redact(ctx, normalized)
+		// Persist the redacted form so the stored PromptText (used for
+		// debugging and for future re-hash via WithRebuildVectorIndex) is
+		// also PII-free. Per requirements: redactor application is between
+		// normalize and hash.
+		req.Prompt = normalized
+	}
 	hash := hashutil.PromptHash(ns, normalized, req.ModelID)
 
 	ttl := req.TTL
@@ -542,6 +579,7 @@ func (c *Client) Store(ctx context.Context, req StoreRequest) (*CacheEntry, erro
 		Namespace:        ns,
 		ResponseText:     req.Response,
 		ResponseMeta:     req.ResponseMeta,
+		Chunks:           req.Chunks,
 		SourceHashes:     req.Sources,
 		EmbeddingMissing: embeddingMissing,
 	}
@@ -647,6 +685,16 @@ func (c *Client) Stats(ctx context.Context) (*Stats, error) {
 		InvalidationsTotal: snap.Invalidations,
 		HitRate:            snap.HitRate(),
 	}, nil
+}
+
+// redactorFor returns the redactor that should be applied for namespace ns,
+// or nil for pass-through. Per-namespace overrides win; otherwise the
+// default redactor (when configured) applies.
+func (c *Client) redactorFor(ns string) normalize.Redactor {
+	if r, ok := c.redactors[ns]; ok {
+		return r
+	}
+	return c.defaultRedactor
 }
 
 // Close shuts down the client and releases resources.

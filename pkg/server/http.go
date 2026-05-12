@@ -101,6 +101,7 @@ func NewHTTPServer(client *reverb.Client, addr string, authn *auth.Authenticator
 	}
 
 	mux.HandleFunc("POST /v1/lookup", s.handleLookup)
+	mux.HandleFunc("POST /v1/lookup-stream", s.handleLookupStream)
 	mux.HandleFunc("POST /v1/store", s.handleStore)
 	mux.HandleFunc("POST /v1/invalidate", s.handleInvalidate)
 	mux.HandleFunc("DELETE /v1/entries/{id}", s.handleDeleteEntry)
@@ -230,6 +231,7 @@ type cacheEntryJSON struct {
 	Prompt       string            `json:"prompt"`
 	ModelID      string            `json:"model_id"`
 	Response     string            `json:"response"`
+	Chunks       []chunkJSON       `json:"chunks,omitempty"`
 	ResponseMeta map[string]string `json:"response_meta,omitempty"`
 	Sources      []sourceRefJSON   `json:"sources,omitempty"`
 	HitCount     int64             `json:"hit_count"`
@@ -245,9 +247,15 @@ type storeReq struct {
 	Prompt       string            `json:"prompt"`
 	ModelID      string            `json:"model_id"`
 	Response     string            `json:"response"`
+	Chunks       []chunkJSON       `json:"chunks,omitempty"`
 	ResponseMeta map[string]string `json:"response_meta,omitempty"`
 	Sources      []sourceRefJSON   `json:"sources,omitempty"`
 	TTLSeconds   int               `json:"ttl_seconds,omitempty"`
+}
+
+type chunkJSON struct {
+	Delta        string `json:"delta"`
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 type storeResp struct {
@@ -327,6 +335,100 @@ func (s *HTTPServer) handleLookup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleLookupStream replays a cached entry as Server-Sent Events. Each
+// chunk in the entry's Chunks slice becomes a single `data:` line; entries
+// stored without chunks are emitted as one chunk carrying the full response
+// text. The stream terminates with `data: [DONE]` per the OpenAI SSE
+// convention. Cache miss returns 404 with the standard error envelope. A
+// 15-second comment-line keepalive runs concurrently with the chunk stream
+// so intermediate proxies don't time out long replays.
+func (s *HTTPServer) handleLookupStream(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+	var req lookupReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResp{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	if req.Namespace == "" {
+		writeJSON(w, http.StatusBadRequest, errorResp{Error: "namespace is required"})
+		return
+	}
+	if req.Prompt == "" {
+		writeJSON(w, http.StatusBadRequest, errorResp{Error: "prompt is required"})
+		return
+	}
+
+	result, err := s.client.Lookup(r.Context(), reverb.LookupRequest{
+		Namespace: auth.ScopedNamespace(r.Context(), req.Namespace),
+		Prompt:    req.Prompt,
+		ModelID:   req.ModelID,
+	})
+	if err != nil {
+		s.logger.Error("lookup-stream lookup failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResp{Error: "internal error"})
+		return
+	}
+	if !result.Hit {
+		writeJSON(w, http.StatusNotFound, errorResp{Error: "no cached response"})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, errorResp{Error: "streaming unsupported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	chunks := result.Entry.Chunks
+	if len(chunks) == 0 {
+		chunks = []store.ResponseChunk{{Delta: result.Entry.ResponseText, FinishReason: "stop"}}
+	}
+
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	send := func(payload any) error {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", raw); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	for _, ch := range chunks {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepAlive.C:
+			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
+				return
+			}
+			flusher.Flush()
+		default:
+		}
+		if err := send(chunkJSON{Delta: ch.Delta, FinishReason: ch.FinishReason}); err != nil {
+			s.logger.Error("lookup-stream send failed", "error", err)
+			return
+		}
+	}
+
+	// OpenAI SSE convention — terminator sentinel.
+	if _, err := w.Write([]byte("data: [DONE]\n\n")); err != nil {
+		return
+	}
+	flusher.Flush()
+}
+
 func (s *HTTPServer) handleStore(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	var req storeReq
@@ -343,8 +445,8 @@ func (s *HTTPServer) handleStore(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResp{Error: "prompt is required"})
 		return
 	}
-	if req.Response == "" {
-		writeJSON(w, http.StatusBadRequest, errorResp{Error: "response is required"})
+	if req.Response == "" && len(req.Chunks) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResp{Error: "response or chunks is required"})
 		return
 	}
 
@@ -364,6 +466,7 @@ func (s *HTTPServer) handleStore(w http.ResponseWriter, r *http.Request) {
 		Prompt:       req.Prompt,
 		ModelID:      req.ModelID,
 		Response:     req.Response,
+		Chunks:       chunksFromJSON(req.Chunks),
 		ResponseMeta: req.ResponseMeta,
 		Sources:      sources,
 		TTL:          ttl,
@@ -528,6 +631,14 @@ func toCacheEntryJSON(e *store.CacheEntry) *cacheEntryJSON {
 		}
 	}
 
+	var chunks []chunkJSON
+	if len(e.Chunks) > 0 {
+		chunks = make([]chunkJSON, len(e.Chunks))
+		for i, ch := range e.Chunks {
+			chunks[i] = chunkJSON{Delta: ch.Delta, FinishReason: ch.FinishReason}
+		}
+	}
+
 	return &cacheEntryJSON{
 		ID:           e.ID,
 		CreatedAt:    e.CreatedAt,
@@ -536,10 +647,22 @@ func toCacheEntryJSON(e *store.CacheEntry) *cacheEntryJSON {
 		Prompt:       e.PromptText,
 		ModelID:      e.ModelID,
 		Response:     e.ResponseText,
+		Chunks:       chunks,
 		ResponseMeta: e.ResponseMeta,
 		Sources:      sources,
 		HitCount:     e.HitCount,
 	}
+}
+
+func chunksFromJSON(in []chunkJSON) []store.ResponseChunk {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]store.ResponseChunk, len(in))
+	for i, c := range in {
+		out[i] = store.ResponseChunk{Delta: c.Delta, FinishReason: c.FinishReason}
+	}
+	return out
 }
 
 func convertSources(jsonSources []sourceRefJSON) ([]store.SourceRef, error) {

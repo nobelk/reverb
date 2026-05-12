@@ -51,12 +51,12 @@ The library is solid; the surface around it is thin. Phase 1 closes the highest-
 - **What:** A separate binary (not bundled into the server) with subcommands `stats`, `lookup`, `store`, `invalidate <source>`, `evict --namespace`, `warm <jsonl>`, `export`, `import`, `validate-config`. Talks HTTP or gRPC.
 - **Why:** Operators today must `curl` the API or write Go code. A CLI is the minimum operator UX.
 
-### 1.6 Streaming response support
+### 1.6 Streaming response support — **DONE** (`spec/phase-1-core-readiness`)
 
 - **What:** Add `chunks []ResponseChunk` (delta + finish_reason) alongside `ResponseText`. New endpoint `POST /v1/lookup-stream` returns SSE if cached.
 - **Why:** Modern LLM endpoints stream tokens. Reverb today stores complete strings only, so callers cannot replay a cached answer as a stream.
 
-### 1.7 OpenAI-compatible reverse-proxy mode
+### 1.7 OpenAI-compatible reverse-proxy mode — **DONE** (`spec/phase-1-core-readiness`)
 
 - **What:** New mode `--proxy openai --upstream https://api.openai.com`: forward on miss, cache on success, return on hit. Honors `cache-control: no-cache` for bypass.
 - **Why:** "Drop a cache in front of OpenAI" is the dominant adoption pattern. This unlocks all OpenAI-API-shaped servers — vLLM, llama.cpp, Together, Anyscale, Ollama, OpenRouter — with one flag.
@@ -68,7 +68,7 @@ The library is solid; the surface around it is thin. Phase 1 closes the highest-
 - **Why:** Cosine alone leaks false positives at high thresholds. The reranker tightens the false-positive budget toward 0/100.
 - **Constraint:** Per `tech-stack.md`, ML-runtime dependencies live behind a build tag. Default builds remain CGO-free.
 
-### 1.9 Singleflight on cache miss
+### 1.9 Singleflight on cache miss — **DONE** (`spec/phase-1-core-readiness`)
 
 - **What:** Coalesce concurrent fills via `golang.org/x/sync/singleflight`, exposed as `LookupOrCall(ctx, req, fillFn)`.
 - **Why:** Today a cold-cache thundering herd hits the LLM N times for the same prompt. Singleflight is a one-line cost saver for every user.
@@ -78,7 +78,7 @@ The library is solid; the surface around it is thin. Phase 1 closes the highest-
 - **What:** A single adapter `pkg/store/postgres` + `pkg/vector/pgvector` sharing a connection pool. Schema migrations shipped.
 - **Why:** Many teams already run Postgres; pgvector unifies storage and ANN. The first community-requested backend.
 
-### 1.11 PII redaction hook in normalize pipeline
+### 1.11 PII redaction hook in normalize pipeline — **DONE** (`spec/phase-1-core-readiness`)
 
 - **What:** Optional `Redactor` interface invoked between normalize and hash. Ships a default regex-based redactor (emails, phones, credit-card patterns, SSN). Per-namespace toggle.
 - **Why:** `normalize.Normalize` only handles NFC/case/whitespace today; PII gets hashed and stored unredacted. Required for regulated-industry adoption.

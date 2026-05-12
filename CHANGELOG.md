@@ -24,6 +24,40 @@ Section conventions:
 
 ### Added
 
+- **Streaming response support.** New `pkg/reverb.ResponseChunk` (`Delta`,
+  `FinishReason`) and `Chunks []ResponseChunk` field on `StoreRequest` and
+  `CacheEntry`. New HTTP endpoint `POST /v1/lookup-stream` returns
+  `text/event-stream` (one `data:` line per chunk, terminated with `[DONE]`,
+  15s comment-line keepalive) on a hit or `404` on a miss. Mirrors
+  `LookupStream` server-streaming RPC on gRPC. Existing `/v1/lookup` and
+  `Lookup` are unchanged; entries stored without chunks emit a single
+  terminal chunk synthesized from `ResponseText`. Python and TypeScript
+  SDKs add `lookup_stream` / `lookupStream` async iterables.
+- **OpenAI-compatible reverse-proxy mode.** New `cmd/reverb` flags
+  `--proxy openai --upstream <url>` turn the binary into a transparent
+  semantic cache in front of any OpenAI-API-compatible upstream. Cached
+  responses are returned with `X-Reverb-Cache: HIT`; misses are forwarded,
+  cached, and returned with `X-Reverb-Cache: MISS`. Streaming
+  (`"stream": true`) is supported. Honors `Cache-Control: no-cache`
+  (bypass) and `no-store` (skip-store) per RFC 9111. The caller's
+  `Authorization` header is forwarded to the upstream verbatim. See
+  `examples/openai-proxy/`.
+- **Singleflight on cache miss.** New `Client.LookupOrCall(ctx, req, fill)`
+  coalesces concurrent identical misses via `golang.org/x/sync/singleflight`
+  so a thundering-herd costs one upstream call instead of N. Followers
+  receive the same `*LookupResponse` the leader stored. New metric
+  `reverb_singleflight_coalesced_total`. Existing `Lookup` semantics are
+  unchanged; callers opt in by switching call sites.
+- **PII redaction hook.** New `pkg/normalize.Redactor` interface invoked
+  between `normalize.Normalize` and the SHA-256 cache key. Default
+  `pkg/normalize/redactor/regex` covers email addresses, North American
+  phone numbers, credit-card numbers (Luhn-checked), and US SSNs;
+  replacement form is `[EMAIL]`, `[PHONE]`, `[CARD]`, `[SSN]`. Per-
+  namespace YAML config: `redactor.enabled` (default false) and
+  `namespaces[].redactor.enabled` overrides. Two new `Client` options:
+  `WithDefaultRedactor` and `WithNamespaceRedactor`. See
+  `examples/pii-redaction/`. Redaction stays disabled by default per
+  mission principle 2 — the Quick Start does not change.
 - `reverb --validate` flag. Constructs the engine (store, embedder, vector
   index, client, auth) without binding listeners or calling the embedding
   provider, and exercises store connectivity via `Stats()`. Exits zero on
@@ -75,6 +109,12 @@ Section conventions:
   bookkeeping through `metrics.StoreTracer` and `metrics.RecordError`
   instead of inline `otel.Tracer(...).Start(...)` and
   `span.RecordError(err); span.SetStatus(...)` boilerplate.
+
+### Security
+
+- The PII redactor (above) gives regulated-industry callers a hook to
+  ensure no PII reaches the stored prompt or its hash. Default-off; opt
+  in per-namespace via YAML or `WithNamespaceRedactor`.
 
 ### Removed
 

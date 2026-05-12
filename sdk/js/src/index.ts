@@ -26,6 +26,7 @@ export type {
   InvalidateResponse,
   LookupRequest,
   LookupResponse,
+  ResponseChunk,
   SourceRef,
   StatsResponse,
   StoreRequest,

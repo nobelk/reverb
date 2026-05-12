@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReverbService_Lookup_FullMethodName      = "/reverb.v1.ReverbService/Lookup"
-	ReverbService_Store_FullMethodName       = "/reverb.v1.ReverbService/Store"
-	ReverbService_Invalidate_FullMethodName  = "/reverb.v1.ReverbService/Invalidate"
-	ReverbService_DeleteEntry_FullMethodName = "/reverb.v1.ReverbService/DeleteEntry"
-	ReverbService_GetStats_FullMethodName    = "/reverb.v1.ReverbService/GetStats"
+	ReverbService_Lookup_FullMethodName       = "/reverb.v1.ReverbService/Lookup"
+	ReverbService_LookupStream_FullMethodName = "/reverb.v1.ReverbService/LookupStream"
+	ReverbService_Store_FullMethodName        = "/reverb.v1.ReverbService/Store"
+	ReverbService_Invalidate_FullMethodName   = "/reverb.v1.ReverbService/Invalidate"
+	ReverbService_DeleteEntry_FullMethodName  = "/reverb.v1.ReverbService/DeleteEntry"
+	ReverbService_GetStats_FullMethodName     = "/reverb.v1.ReverbService/GetStats"
 )
 
 // ReverbServiceClient is the client API for ReverbService service.
@@ -34,6 +35,12 @@ const (
 type ReverbServiceClient interface {
 	// Lookup checks the cache for a matching response.
 	Lookup(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (*LookupResponse, error)
+	// LookupStream replays a cached response as a stream of chunks. On a miss,
+	// the server closes the stream with codes.NotFound; on a hit, it emits one
+	// ResponseChunk per stored chunk and closes cleanly. Entries stored without
+	// chunks are emitted as a single chunk carrying the full response text and
+	// finish_reason="stop".
+	LookupStream(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ResponseChunk], error)
 	// Store writes a new cache entry.
 	Store(ctx context.Context, in *StoreRequest, opts ...grpc.CallOption) (*StoreResponse, error)
 	// Invalidate invalidates all cache entries that depend on the given source.
@@ -61,6 +68,25 @@ func (c *reverbServiceClient) Lookup(ctx context.Context, in *LookupRequest, opt
 	}
 	return out, nil
 }
+
+func (c *reverbServiceClient) LookupStream(ctx context.Context, in *LookupRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ResponseChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ReverbService_ServiceDesc.Streams[0], ReverbService_LookupStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LookupRequest, ResponseChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ReverbService_LookupStreamClient = grpc.ServerStreamingClient[ResponseChunk]
 
 func (c *reverbServiceClient) Store(ctx context.Context, in *StoreRequest, opts ...grpc.CallOption) (*StoreResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -110,6 +136,12 @@ func (c *reverbServiceClient) GetStats(ctx context.Context, in *GetStatsRequest,
 type ReverbServiceServer interface {
 	// Lookup checks the cache for a matching response.
 	Lookup(context.Context, *LookupRequest) (*LookupResponse, error)
+	// LookupStream replays a cached response as a stream of chunks. On a miss,
+	// the server closes the stream with codes.NotFound; on a hit, it emits one
+	// ResponseChunk per stored chunk and closes cleanly. Entries stored without
+	// chunks are emitted as a single chunk carrying the full response text and
+	// finish_reason="stop".
+	LookupStream(*LookupRequest, grpc.ServerStreamingServer[ResponseChunk]) error
 	// Store writes a new cache entry.
 	Store(context.Context, *StoreRequest) (*StoreResponse, error)
 	// Invalidate invalidates all cache entries that depend on the given source.
@@ -130,6 +162,9 @@ type UnimplementedReverbServiceServer struct{}
 
 func (UnimplementedReverbServiceServer) Lookup(context.Context, *LookupRequest) (*LookupResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Lookup not implemented")
+}
+func (UnimplementedReverbServiceServer) LookupStream(*LookupRequest, grpc.ServerStreamingServer[ResponseChunk]) error {
+	return status.Error(codes.Unimplemented, "method LookupStream not implemented")
 }
 func (UnimplementedReverbServiceServer) Store(context.Context, *StoreRequest) (*StoreResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Store not implemented")
@@ -181,6 +216,17 @@ func _ReverbService_Lookup_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _ReverbService_LookupStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(LookupRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ReverbServiceServer).LookupStream(m, &grpc.GenericServerStream[LookupRequest, ResponseChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ReverbService_LookupStreamServer = grpc.ServerStreamingServer[ResponseChunk]
 
 func _ReverbService_Store_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StoreRequest)
@@ -282,6 +328,12 @@ var ReverbService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ReverbService_GetStats_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "LookupStream",
+			Handler:       _ReverbService_LookupStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "pkg/server/proto/reverb.proto",
 }

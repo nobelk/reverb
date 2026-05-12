@@ -161,6 +161,7 @@ type CacheEntry struct {
 	ResponseMeta  map[string]string      `protobuf:"bytes,8,rep,name=response_meta,json=responseMeta,proto3" json:"response_meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Sources       []*SourceRef           `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty"`
 	HitCount      int64                  `protobuf:"varint,10,opt,name=hit_count,json=hitCount,proto3" json:"hit_count,omitempty"`
+	Chunks        []*ResponseChunk       `protobuf:"bytes,11,rep,name=chunks,proto3" json:"chunks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -265,6 +266,67 @@ func (x *CacheEntry) GetHitCount() int64 {
 	return 0
 }
 
+func (x *CacheEntry) GetChunks() []*ResponseChunk {
+	if x != nil {
+		return x.Chunks
+	}
+	return nil
+}
+
+// ResponseChunk is one delta in a streamed LLM response. finish_reason is
+// non-empty only on the terminal chunk.
+type ResponseChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Delta         string                 `protobuf:"bytes,1,opt,name=delta,proto3" json:"delta,omitempty"`
+	FinishReason  string                 `protobuf:"bytes,2,opt,name=finish_reason,json=finishReason,proto3" json:"finish_reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResponseChunk) Reset() {
+	*x = ResponseChunk{}
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResponseChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResponseChunk) ProtoMessage() {}
+
+func (x *ResponseChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResponseChunk.ProtoReflect.Descriptor instead.
+func (*ResponseChunk) Descriptor() ([]byte, []int) {
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ResponseChunk) GetDelta() string {
+	if x != nil {
+		return x.Delta
+	}
+	return ""
+}
+
+func (x *ResponseChunk) GetFinishReason() string {
+	if x != nil {
+		return x.FinishReason
+	}
+	return ""
+}
+
 type SourceRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SourceId      string                 `protobuf:"bytes,1,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
@@ -275,7 +337,7 @@ type SourceRef struct {
 
 func (x *SourceRef) Reset() {
 	*x = SourceRef{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[3]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +349,7 @@ func (x *SourceRef) String() string {
 func (*SourceRef) ProtoMessage() {}
 
 func (x *SourceRef) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[3]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +362,7 @@ func (x *SourceRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceRef.ProtoReflect.Descriptor instead.
 func (*SourceRef) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{3}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SourceRef) GetSourceId() string {
@@ -326,13 +388,14 @@ type StoreRequest struct {
 	ResponseMeta  map[string]string      `protobuf:"bytes,5,rep,name=response_meta,json=responseMeta,proto3" json:"response_meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Sources       []*SourceRef           `protobuf:"bytes,6,rep,name=sources,proto3" json:"sources,omitempty"`
 	TtlSeconds    int32                  `protobuf:"varint,7,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	Chunks        []*ResponseChunk       `protobuf:"bytes,8,rep,name=chunks,proto3" json:"chunks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StoreRequest) Reset() {
 	*x = StoreRequest{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[4]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -344,7 +407,7 @@ func (x *StoreRequest) String() string {
 func (*StoreRequest) ProtoMessage() {}
 
 func (x *StoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[4]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -357,7 +420,7 @@ func (x *StoreRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreRequest.ProtoReflect.Descriptor instead.
 func (*StoreRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{4}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *StoreRequest) GetNamespace() string {
@@ -409,6 +472,13 @@ func (x *StoreRequest) GetTtlSeconds() int32 {
 	return 0
 }
 
+func (x *StoreRequest) GetChunks() []*ResponseChunk {
+	if x != nil {
+		return x.Chunks
+	}
+	return nil
+}
+
 type StoreResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -419,7 +489,7 @@ type StoreResponse struct {
 
 func (x *StoreResponse) Reset() {
 	*x = StoreResponse{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[5]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -431,7 +501,7 @@ func (x *StoreResponse) String() string {
 func (*StoreResponse) ProtoMessage() {}
 
 func (x *StoreResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[5]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -444,7 +514,7 @@ func (x *StoreResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreResponse.ProtoReflect.Descriptor instead.
 func (*StoreResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{5}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StoreResponse) GetId() string {
@@ -470,7 +540,7 @@ type InvalidateRequest struct {
 
 func (x *InvalidateRequest) Reset() {
 	*x = InvalidateRequest{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[6]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -482,7 +552,7 @@ func (x *InvalidateRequest) String() string {
 func (*InvalidateRequest) ProtoMessage() {}
 
 func (x *InvalidateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[6]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -495,7 +565,7 @@ func (x *InvalidateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvalidateRequest.ProtoReflect.Descriptor instead.
 func (*InvalidateRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{6}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *InvalidateRequest) GetSourceId() string {
@@ -514,7 +584,7 @@ type InvalidateResponse struct {
 
 func (x *InvalidateResponse) Reset() {
 	*x = InvalidateResponse{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[7]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +596,7 @@ func (x *InvalidateResponse) String() string {
 func (*InvalidateResponse) ProtoMessage() {}
 
 func (x *InvalidateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[7]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +609,7 @@ func (x *InvalidateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvalidateResponse.ProtoReflect.Descriptor instead.
 func (*InvalidateResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{7}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *InvalidateResponse) GetInvalidatedCount() int32 {
@@ -558,7 +628,7 @@ type DeleteEntryRequest struct {
 
 func (x *DeleteEntryRequest) Reset() {
 	*x = DeleteEntryRequest{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[8]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -570,7 +640,7 @@ func (x *DeleteEntryRequest) String() string {
 func (*DeleteEntryRequest) ProtoMessage() {}
 
 func (x *DeleteEntryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[8]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -583,7 +653,7 @@ func (x *DeleteEntryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEntryRequest.ProtoReflect.Descriptor instead.
 func (*DeleteEntryRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{8}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeleteEntryRequest) GetId() string {
@@ -601,7 +671,7 @@ type DeleteEntryResponse struct {
 
 func (x *DeleteEntryResponse) Reset() {
 	*x = DeleteEntryResponse{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[9]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -613,7 +683,7 @@ func (x *DeleteEntryResponse) String() string {
 func (*DeleteEntryResponse) ProtoMessage() {}
 
 func (x *DeleteEntryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[9]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -626,7 +696,7 @@ func (x *DeleteEntryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEntryResponse.ProtoReflect.Descriptor instead.
 func (*DeleteEntryResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{9}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{10}
 }
 
 type GetStatsRequest struct {
@@ -637,7 +707,7 @@ type GetStatsRequest struct {
 
 func (x *GetStatsRequest) Reset() {
 	*x = GetStatsRequest{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[10]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +719,7 @@ func (x *GetStatsRequest) String() string {
 func (*GetStatsRequest) ProtoMessage() {}
 
 func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[10]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +732,7 @@ func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetStatsRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{10}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{11}
 }
 
 type GetStatsResponse struct {
@@ -679,7 +749,7 @@ type GetStatsResponse struct {
 
 func (x *GetStatsResponse) Reset() {
 	*x = GetStatsResponse{}
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[11]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -691,7 +761,7 @@ func (x *GetStatsResponse) String() string {
 func (*GetStatsResponse) ProtoMessage() {}
 
 func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_server_proto_reverb_proto_msgTypes[11]
+	mi := &file_pkg_server_proto_reverb_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -704,7 +774,7 @@ func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetStatsResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{11}
+	return file_pkg_server_proto_reverb_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetStatsResponse) GetTotalEntries() int64 {
@@ -764,7 +834,7 @@ const file_pkg_server_proto_reverb_proto_rawDesc = "" +
 	"\n" +
 	"similarity\x18\x03 \x01(\x02R\n" +
 	"similarity\x12+\n" +
-	"\x05entry\x18\x04 \x01(\v2\x15.reverb.v1.CacheEntryR\x05entry\"\xb5\x03\n" +
+	"\x05entry\x18\x04 \x01(\v2\x15.reverb.v1.CacheEntryR\x05entry\"\xe7\x03\n" +
 	"\n" +
 	"CacheEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12&\n" +
@@ -777,13 +847,17 @@ const file_pkg_server_proto_reverb_proto_rawDesc = "" +
 	"\rresponse_meta\x18\b \x03(\v2'.reverb.v1.CacheEntry.ResponseMetaEntryR\fresponseMeta\x12.\n" +
 	"\asources\x18\t \x03(\v2\x14.reverb.v1.SourceRefR\asources\x12\x1b\n" +
 	"\thit_count\x18\n" +
-	" \x01(\x03R\bhitCount\x1a?\n" +
+	" \x01(\x03R\bhitCount\x120\n" +
+	"\x06chunks\x18\v \x03(\v2\x18.reverb.v1.ResponseChunkR\x06chunks\x1a?\n" +
 	"\x11ResponseMetaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"K\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"J\n" +
+	"\rResponseChunk\x12\x14\n" +
+	"\x05delta\x18\x01 \x01(\tR\x05delta\x12#\n" +
+	"\rfinish_reason\x18\x02 \x01(\tR\ffinishReason\"K\n" +
 	"\tSourceRef\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x12!\n" +
-	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\"\xdd\x02\n" +
+	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\"\x8f\x03\n" +
 	"\fStoreRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x19\n" +
@@ -792,7 +866,8 @@ const file_pkg_server_proto_reverb_proto_rawDesc = "" +
 	"\rresponse_meta\x18\x05 \x03(\v2).reverb.v1.StoreRequest.ResponseMetaEntryR\fresponseMeta\x12.\n" +
 	"\asources\x18\x06 \x03(\v2\x14.reverb.v1.SourceRefR\asources\x12\x1f\n" +
 	"\vttl_seconds\x18\a \x01(\x05R\n" +
-	"ttlSeconds\x1a?\n" +
+	"ttlSeconds\x120\n" +
+	"\x06chunks\x18\b \x03(\v2\x18.reverb.v1.ResponseChunkR\x06chunks\x1a?\n" +
 	"\x11ResponseMetaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"G\n" +
@@ -815,9 +890,10 @@ const file_pkg_server_proto_reverb_proto_rawDesc = "" +
 	"\x10exact_hits_total\x18\x03 \x01(\x03R\x0eexactHitsTotal\x12.\n" +
 	"\x13semantic_hits_total\x18\x04 \x01(\x03R\x11semanticHitsTotal\x12!\n" +
 	"\fmisses_total\x18\x05 \x01(\x03R\vmissesTotal\x12/\n" +
-	"\x13invalidations_total\x18\x06 \x01(\x03R\x12invalidationsTotal2\xe8\x02\n" +
+	"\x13invalidations_total\x18\x06 \x01(\x03R\x12invalidationsTotal2\xae\x03\n" +
 	"\rReverbService\x12=\n" +
-	"\x06Lookup\x12\x18.reverb.v1.LookupRequest\x1a\x19.reverb.v1.LookupResponse\x12:\n" +
+	"\x06Lookup\x12\x18.reverb.v1.LookupRequest\x1a\x19.reverb.v1.LookupResponse\x12D\n" +
+	"\fLookupStream\x12\x18.reverb.v1.LookupRequest\x1a\x18.reverb.v1.ResponseChunk0\x01\x12:\n" +
 	"\x05Store\x12\x17.reverb.v1.StoreRequest\x1a\x18.reverb.v1.StoreResponse\x12I\n" +
 	"\n" +
 	"Invalidate\x12\x1c.reverb.v1.InvalidateRequest\x1a\x1d.reverb.v1.InvalidateResponse\x12L\n" +
@@ -836,44 +912,49 @@ func file_pkg_server_proto_reverb_proto_rawDescGZIP() []byte {
 	return file_pkg_server_proto_reverb_proto_rawDescData
 }
 
-var file_pkg_server_proto_reverb_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_pkg_server_proto_reverb_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_pkg_server_proto_reverb_proto_goTypes = []any{
 	(*LookupRequest)(nil),       // 0: reverb.v1.LookupRequest
 	(*LookupResponse)(nil),      // 1: reverb.v1.LookupResponse
 	(*CacheEntry)(nil),          // 2: reverb.v1.CacheEntry
-	(*SourceRef)(nil),           // 3: reverb.v1.SourceRef
-	(*StoreRequest)(nil),        // 4: reverb.v1.StoreRequest
-	(*StoreResponse)(nil),       // 5: reverb.v1.StoreResponse
-	(*InvalidateRequest)(nil),   // 6: reverb.v1.InvalidateRequest
-	(*InvalidateResponse)(nil),  // 7: reverb.v1.InvalidateResponse
-	(*DeleteEntryRequest)(nil),  // 8: reverb.v1.DeleteEntryRequest
-	(*DeleteEntryResponse)(nil), // 9: reverb.v1.DeleteEntryResponse
-	(*GetStatsRequest)(nil),     // 10: reverb.v1.GetStatsRequest
-	(*GetStatsResponse)(nil),    // 11: reverb.v1.GetStatsResponse
-	nil,                         // 12: reverb.v1.CacheEntry.ResponseMetaEntry
-	nil,                         // 13: reverb.v1.StoreRequest.ResponseMetaEntry
+	(*ResponseChunk)(nil),       // 3: reverb.v1.ResponseChunk
+	(*SourceRef)(nil),           // 4: reverb.v1.SourceRef
+	(*StoreRequest)(nil),        // 5: reverb.v1.StoreRequest
+	(*StoreResponse)(nil),       // 6: reverb.v1.StoreResponse
+	(*InvalidateRequest)(nil),   // 7: reverb.v1.InvalidateRequest
+	(*InvalidateResponse)(nil),  // 8: reverb.v1.InvalidateResponse
+	(*DeleteEntryRequest)(nil),  // 9: reverb.v1.DeleteEntryRequest
+	(*DeleteEntryResponse)(nil), // 10: reverb.v1.DeleteEntryResponse
+	(*GetStatsRequest)(nil),     // 11: reverb.v1.GetStatsRequest
+	(*GetStatsResponse)(nil),    // 12: reverb.v1.GetStatsResponse
+	nil,                         // 13: reverb.v1.CacheEntry.ResponseMetaEntry
+	nil,                         // 14: reverb.v1.StoreRequest.ResponseMetaEntry
 }
 var file_pkg_server_proto_reverb_proto_depIdxs = []int32{
 	2,  // 0: reverb.v1.LookupResponse.entry:type_name -> reverb.v1.CacheEntry
-	12, // 1: reverb.v1.CacheEntry.response_meta:type_name -> reverb.v1.CacheEntry.ResponseMetaEntry
-	3,  // 2: reverb.v1.CacheEntry.sources:type_name -> reverb.v1.SourceRef
-	13, // 3: reverb.v1.StoreRequest.response_meta:type_name -> reverb.v1.StoreRequest.ResponseMetaEntry
-	3,  // 4: reverb.v1.StoreRequest.sources:type_name -> reverb.v1.SourceRef
-	0,  // 5: reverb.v1.ReverbService.Lookup:input_type -> reverb.v1.LookupRequest
-	4,  // 6: reverb.v1.ReverbService.Store:input_type -> reverb.v1.StoreRequest
-	6,  // 7: reverb.v1.ReverbService.Invalidate:input_type -> reverb.v1.InvalidateRequest
-	8,  // 8: reverb.v1.ReverbService.DeleteEntry:input_type -> reverb.v1.DeleteEntryRequest
-	10, // 9: reverb.v1.ReverbService.GetStats:input_type -> reverb.v1.GetStatsRequest
-	1,  // 10: reverb.v1.ReverbService.Lookup:output_type -> reverb.v1.LookupResponse
-	5,  // 11: reverb.v1.ReverbService.Store:output_type -> reverb.v1.StoreResponse
-	7,  // 12: reverb.v1.ReverbService.Invalidate:output_type -> reverb.v1.InvalidateResponse
-	9,  // 13: reverb.v1.ReverbService.DeleteEntry:output_type -> reverb.v1.DeleteEntryResponse
-	11, // 14: reverb.v1.ReverbService.GetStats:output_type -> reverb.v1.GetStatsResponse
-	10, // [10:15] is the sub-list for method output_type
-	5,  // [5:10] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 1: reverb.v1.CacheEntry.response_meta:type_name -> reverb.v1.CacheEntry.ResponseMetaEntry
+	4,  // 2: reverb.v1.CacheEntry.sources:type_name -> reverb.v1.SourceRef
+	3,  // 3: reverb.v1.CacheEntry.chunks:type_name -> reverb.v1.ResponseChunk
+	14, // 4: reverb.v1.StoreRequest.response_meta:type_name -> reverb.v1.StoreRequest.ResponseMetaEntry
+	4,  // 5: reverb.v1.StoreRequest.sources:type_name -> reverb.v1.SourceRef
+	3,  // 6: reverb.v1.StoreRequest.chunks:type_name -> reverb.v1.ResponseChunk
+	0,  // 7: reverb.v1.ReverbService.Lookup:input_type -> reverb.v1.LookupRequest
+	0,  // 8: reverb.v1.ReverbService.LookupStream:input_type -> reverb.v1.LookupRequest
+	5,  // 9: reverb.v1.ReverbService.Store:input_type -> reverb.v1.StoreRequest
+	7,  // 10: reverb.v1.ReverbService.Invalidate:input_type -> reverb.v1.InvalidateRequest
+	9,  // 11: reverb.v1.ReverbService.DeleteEntry:input_type -> reverb.v1.DeleteEntryRequest
+	11, // 12: reverb.v1.ReverbService.GetStats:input_type -> reverb.v1.GetStatsRequest
+	1,  // 13: reverb.v1.ReverbService.Lookup:output_type -> reverb.v1.LookupResponse
+	3,  // 14: reverb.v1.ReverbService.LookupStream:output_type -> reverb.v1.ResponseChunk
+	6,  // 15: reverb.v1.ReverbService.Store:output_type -> reverb.v1.StoreResponse
+	8,  // 16: reverb.v1.ReverbService.Invalidate:output_type -> reverb.v1.InvalidateResponse
+	10, // 17: reverb.v1.ReverbService.DeleteEntry:output_type -> reverb.v1.DeleteEntryResponse
+	12, // 18: reverb.v1.ReverbService.GetStats:output_type -> reverb.v1.GetStatsResponse
+	13, // [13:19] is the sub-list for method output_type
+	7,  // [7:13] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_pkg_server_proto_reverb_proto_init() }
@@ -887,7 +968,7 @@ func file_pkg_server_proto_reverb_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_server_proto_reverb_proto_rawDesc), len(file_pkg_server_proto_reverb_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

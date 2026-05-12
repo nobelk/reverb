@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +31,8 @@ import (
 	"github.com/nobelk/reverb/pkg/embedding/throttled"
 	"github.com/nobelk/reverb/pkg/limiter"
 	"github.com/nobelk/reverb/pkg/metrics"
+	"github.com/nobelk/reverb/pkg/normalize"
+	"github.com/nobelk/reverb/pkg/normalize/redactor/regex"
 	"github.com/nobelk/reverb/pkg/reverb"
 	"github.com/nobelk/reverb/pkg/server"
 	badgerstore "github.com/nobelk/reverb/pkg/store/badger"
@@ -45,6 +48,8 @@ func main() {
 	httpAddr := flag.String("http-addr", ":8080", "HTTP listen address")
 	configPath := flag.String("config", "", "Path to YAML config file")
 	validate := flag.Bool("validate", false, "Validate config and construct the engine, then exit. Does not bind listeners or call the embedder. Exits 0 on success, non-zero with a structured JSON error report on failure.")
+	proxyMode := flag.String("proxy", "", "Run as a reverse proxy in front of an upstream API. Currently supported: 'openai'. Mutually exclusive with the native /v1/* surface.")
+	upstream := flag.String("upstream", "", "Upstream URL for --proxy mode (e.g. https://api.openai.com).")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -150,6 +155,10 @@ func main() {
 		logger.Info("vector index rebuild on startup enabled", "store", cfg.Store.Backend)
 	}
 
+	for _, opt := range buildRedactorOptions(cfg, logger) {
+		reverbOpts = append(reverbOpts, opt)
+	}
+
 	// Build a dedicated Prometheus registry rather than sharing the default
 	// global one. This keeps test isolation predictable and makes it explicit
 	// which metrics we serve.
@@ -218,6 +227,40 @@ func main() {
 	addr := cfg.Server.HTTPAddr
 	if addr == "" {
 		addr = ":8080"
+	}
+
+	if *proxyMode != "" {
+		if *proxyMode != "openai" {
+			logger.Error("unsupported --proxy mode", "mode", *proxyMode)
+			os.Exit(1)
+		}
+		if *upstream == "" {
+			logger.Error("--proxy=openai requires --upstream <url>")
+			os.Exit(1)
+		}
+		proxy, err := newOpenAIProxy(client, *upstream, logger, cfg.DefaultNamespace)
+		if err != nil {
+			logger.Error("failed to create openai proxy", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("starting OpenAI-compatible reverse proxy",
+			"addr", addr, "upstream", *upstream, "default_namespace", cfg.DefaultNamespace)
+		proxySrv := &http.Server{
+			Addr:              addr,
+			Handler:           proxy.Handler(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = proxySrv.Shutdown(shutdownCtx)
+		}()
+		if err := proxySrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "proxy server error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	httpOpts := []server.HTTPServerOption{
@@ -443,6 +486,56 @@ func validateEngine(ctx context.Context, cfg reverb.Config) error {
 	}
 
 	return nil
+}
+
+// buildRedactorOptions translates RedactorConfig + NamespaceConfig into the
+// matching reverb.Option set. Returns an empty slice when redaction is
+// disabled everywhere.
+func buildRedactorOptions(cfg reverb.Config, logger *slog.Logger) []reverb.Option {
+	var opts []reverb.Option
+	if cfg.Redactor.Enabled {
+		r, err := newRedactor(cfg.Redactor.Default)
+		if err != nil {
+			logger.Error("redactor: invalid default", "error", err)
+			os.Exit(1)
+		}
+		opts = append(opts, reverb.WithDefaultRedactor(r))
+		logger.Info("PII redactor enabled (default)", "implementation", cfg.Redactor.Default)
+	}
+	for _, ns := range cfg.Namespaces {
+		if !ns.Redactor.Enabled {
+			// An explicit disable for this namespace overrides the default.
+			opts = append(opts, reverb.WithNamespaceRedactor(ns.Name, nil))
+			continue
+		}
+		impl := ns.Redactor.Default
+		if impl == "" {
+			impl = cfg.Redactor.Default
+		}
+		r, err := newRedactor(impl)
+		if err != nil {
+			logger.Error("redactor: invalid namespace config", "namespace", ns.Name, "error", err)
+			os.Exit(1)
+		}
+		opts = append(opts, reverb.WithNamespaceRedactor(ns.Name, r))
+		logger.Info("PII redactor enabled for namespace",
+			"namespace", ns.Name, "implementation", impl)
+	}
+	return opts
+}
+
+// newRedactor constructs a redactor by name. Defaults to "regex" when name
+// is empty.
+func newRedactor(name string) (normalize.Redactor, error) {
+	if name == "" {
+		name = "regex"
+	}
+	switch name {
+	case "regex":
+		return regex.New(), nil
+	default:
+		return nil, fmt.Errorf("unknown redactor implementation %q", name)
+	}
 }
 
 // newCDCListener creates a cdc.Listener based on cfg.CDC.Mode.

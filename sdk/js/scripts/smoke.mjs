@@ -64,4 +64,27 @@ if (post.hit) {
 }
 console.log("[smoke] post-invalidate lookup → miss (expected)");
 
+// --- streaming smoke ---
+const streamPrompt = `stream ${prompt}`;
+await cache.store({
+  namespace,
+  prompt: streamPrompt,
+  modelId: "smoke-model",
+  chunks: [
+    { delta: "Par" },
+    { delta: "is", finish_reason: "stop" },
+  ],
+});
+let acc = "";
+let chunkCount = 0;
+for await (const chunk of cache.lookupStream({ namespace, prompt: streamPrompt })) {
+  acc += chunk.delta;
+  chunkCount++;
+}
+if (acc !== "Paris" || chunkCount === 0) {
+  console.error(`[smoke] FAIL: streamed replay got chunks=${chunkCount} text=${JSON.stringify(acc)}`);
+  process.exit(1);
+}
+console.log(`[smoke] streamed lookup → ${chunkCount} chunk(s)`);
+
 console.log("[smoke] OK");

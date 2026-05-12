@@ -16,7 +16,7 @@ import os
 import sys
 import uuid
 
-from reverb import Reverb, SourceRef
+from reverb import ResponseChunk, Reverb, SourceRef
 
 
 def main() -> int:
@@ -69,6 +69,23 @@ def main() -> int:
             print("[smoke] FAIL: entry survived invalidation", file=sys.stderr)
             return 1
         print("[smoke] post-invalidate lookup → miss (expected)")
+
+        # --- streaming smoke ---
+        stream_prompt = "stream " + prompt
+        cache.store(
+            namespace=namespace,
+            prompt=stream_prompt,
+            chunks=[
+                ResponseChunk(delta="Par"),
+                ResponseChunk(delta="is", finish_reason="stop"),
+            ],
+            model_id="smoke-model",
+        )
+        replayed = list(cache.lookup_stream(namespace=namespace, prompt=stream_prompt))
+        if not replayed or "".join(c.delta for c in replayed) != "Paris":
+            print(f"[smoke] FAIL: streamed replay got {replayed!r}", file=sys.stderr)
+            return 1
+        print(f"[smoke] streamed lookup → {len(replayed)} chunk(s)")
 
     print("[smoke] OK")
     return 0

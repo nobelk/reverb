@@ -9,6 +9,13 @@ service ReverbService {
   // Lookup checks the cache for a matching response.
   rpc Lookup(LookupRequest) returns (LookupResponse);
 
+  // LookupStream replays a cached response as a stream of chunks. On a miss,
+  // the server closes the stream with codes.NotFound; on a hit, it emits one
+  // ResponseChunk per stored chunk and closes cleanly. Entries stored without
+  // chunks are emitted as a single chunk carrying the full response text and
+  // finish_reason="stop".
+  rpc LookupStream(LookupRequest) returns (stream ResponseChunk);
+
   // Store writes a new cache entry.
   rpc Store(StoreRequest) returns (StoreResponse);
 
@@ -46,6 +53,14 @@ message CacheEntry {
   map<string,string> response_meta = 8;
   repeated SourceRef sources       = 9;
   int64             hit_count      = 10;
+  repeated ResponseChunk chunks    = 11;
+}
+
+// ResponseChunk is one delta in a streamed LLM response. finish_reason is
+// non-empty only on the terminal chunk.
+message ResponseChunk {
+  string delta         = 1;
+  string finish_reason = 2;
 }
 
 message SourceRef {
@@ -61,6 +76,7 @@ message StoreRequest {
   map<string,string> response_meta = 5;
   repeated SourceRef sources      = 6;
   int32             ttl_seconds   = 7;
+  repeated ResponseChunk chunks   = 8;
 }
 
 message StoreResponse {
